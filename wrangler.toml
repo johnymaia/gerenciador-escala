@@ -1,0 +1,16 @@
+name = "escala-loterica"
+compatibility_date = "2025-01-20"
+pages_build_output_dir = "dist"
+
+# Após criar o banco no Cloudflare com:
+#   npx wrangler d1 create escala_db
+# cole o database_id gerado abaixo.
+[[d1_databases]]
+binding = "DB"
+database_name = "escala_db"
+database_id = "local-dev-escala-db"
+
+[vars]
+# Em produção (Cloudflare Pages > Settings > Environment variables),
+# defina um AUTH_SECRET forte e aleatório (ex: 32+ caracteres).
+AUTH_SECRET = "troque-esta-chave-em-producao-por-um-segredo-forte"

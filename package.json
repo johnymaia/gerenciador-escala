@@ -1,0 +1,31 @@
+{
+  "name": "escala-loterica",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "cf:migrate:local": "wrangler d1 migrations apply escala_db --local",
+    "cf:migrate:remote": "wrangler d1 migrations apply escala_db --remote",
+    "cf:dev": "wrangler pages dev dist --port 8788",
+    "cf:deploy": "npm run build && wrangler pages deploy dist"
+  },
+  "dependencies": {
+    "lucide-react": "^0.469.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250124.0",
+    "@tailwindcss/vite": "^4.0.9",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.0.9",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.1",
+    "wrangler": "^3.109.2"
+  }
+}
