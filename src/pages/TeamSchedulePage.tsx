@@ -1,0 +1,696 @@
+import {
+  ArrowLeftRight,
+  Calendar as CalendarIcon,
+  ChevronLeft,
+  ChevronRight,
+  Edit3,
+  Loader2,
+  RotateCcw,
+  Sparkles,
+} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { addDaysYmd } from '../../shared/holidays';
+import {
+  getMondayOfWeek,
+  getMonthRange,
+  getSundayOfWeek,
+  getTodayBrazilYmd,
+} from '../../shared/schedule';
+import type { PublicEmployee, ScheduleDay } from '../../shared/types';
+import { Modal } from '../components/Modal';
+import { api, ApiError } from '../lib/api';
+import {
+  formatDayMonth,
+  formatFullDateBr,
+  formatMonthTitle,
+  formatWeekRange,
+  weekdayFull,
+  weekdayShort,
+} from '../lib/format';
+
+interface TeamSchedulePageProps {
+  user: PublicEmployee;
+}
+
+export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
+  const isAdmin = user.role === 'admin';
+  const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
+  const [today, setToday] = useState(getTodayBrazilYmd());
+
+  const [weekAnchor, setWeekAnchor] = useState(() => getMondayOfWeek(getTodayBrazilYmd()));
+  const [monthKey, setMonthKey] = useState(() => getTodayBrazilYmd().slice(0, 7));
+
+  const [days, setDays] = useState<ScheduleDay[]>([]);
+  const [employees, setEmployees] = useState<PublicEmployee[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  // Modal de edição (Admin)
+  const [selectedDay, setSelectedDay] = useState<ScheduleDay | null>(null);
+  const [swapOpen, setSwapOpen] = useState(false);
+  const [swapEmpA, setSwapEmpA] = useState<number>(0);
+  const [swapDateA, setSwapDateA] = useState('');
+  const [swapEmpB, setSwapEmpB] = useState<number>(0);
+  const [swapDateB, setSwapDateB] = useState('');
+  const [swapNote, setSwapNote] = useState('');
+  const [holidayNameInput, setHolidayNameInput] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const range = useMemo(() => {
+    if (viewMode === 'week') {
+      return { from: weekAnchor, to: getSundayOfWeek(weekAnchor) };
+    }
+    const [y, m] = monthKey.split('-').map(Number);
+    return getMonthRange(y, m);
+  }, [viewMode, weekAnchor, monthKey]);
+
+  const loadSchedule = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await api.getSchedule(range.from, range.to);
+      setDays(res.days);
+      setEmployees(res.employees);
+      setToday(res.today);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erro ao carregar escala.');
+    } finally {
+      setLoading(false);
+    }
+  }, [range.from, range.to]);
+
+  useEffect(() => {
+    loadSchedule();
+  }, [loadSchedule]);
+
+  function shiftPeriod(dir: -1 | 1) {
+    if (viewMode === 'week') {
+      setWeekAnchor((prev) => addDaysYmd(prev, dir * 7));
+    } else {
+      const [y, m] = monthKey.split('-').map(Number);
+      const d = new Date(Date.UTC(y, m - 1 + dir, 1));
+      setMonthKey(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+    }
+  }
+
+  function goToday() {
+    const now = getTodayBrazilYmd();
+    setWeekAnchor(getMondayOfWeek(now));
+    setMonthKey(now.slice(0, 7));
+  }
+
+  async function handleToggleEmployeeOff(day: ScheduleDay, empId: number, currentStatus: string) {
+    setSaving(true);
+    try {
+      const nextStatus = currentStatus === 'off' ? 'work' : 'off';
+      await api.setScheduleOverride({
+        date: day.date,
+        employee_id: empId,
+        status: nextStatus,
+        note: 'Ajuste manual',
+      });
+      await loadSchedule();
+      setSelectedDay(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erro ao atualizar folga.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleResetDay(date: string) {
+    setSaving(true);
+    try {
+      await api.clearScheduleOverride(date);
+      await loadSchedule();
+      setSelectedDay(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erro ao restaurar dia.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleToggleDayHoliday(day: ScheduleDay) {
+    setSaving(true);
+    try {
+      if (day.holiday) {
+        await api.saveHoliday({ date: day.date, name: day.holiday.name, is_closed: false });
+      } else {
+        await api.saveHoliday({
+          date: day.date,
+          name: holidayNameInput.trim() || 'Feriado / Loja Fechada',
+          is_closed: true,
+        });
+      }
+      setHolidayNameInput('');
+      await loadSchedule();
+      setSelectedDay(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erro ao atualizar feriado.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openSwapModal() {
+    const openDays = days.filter((d) => !d.is_sunday && !d.holiday);
+    const firstOffDay = openDays.find((d) => d.off_employee_ids.length > 0);
+    const secondOffDay = openDays.find(
+      (d) =>
+        d.off_employee_ids.length > 0 &&
+        d.date !== firstOffDay?.date &&
+        d.off_employee_ids[0] !== firstOffDay?.off_employee_ids[0],
+    );
+    setSwapDateA(firstOffDay?.date || openDays[0]?.date || today);
+    setSwapEmpA(firstOffDay?.off_employee_ids[0] || employees[0]?.id || 0);
+    setSwapDateB(secondOffDay?.date || openDays[1]?.date || today);
+    setSwapEmpB(secondOffDay?.off_employee_ids[0] || employees[1]?.id || 0);
+    setSwapNote('');
+    setSwapOpen(true);
+  }
+
+  async function handleSwapSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      await api.swapDaysOff({
+        date_a: swapDateA,
+        employee_a: swapEmpA,
+        date_b: swapDateB,
+        employee_b: swapEmpB,
+        note: swapNote || 'Troca de folga',
+      });
+      setSwapOpen(false);
+      await loadSchedule();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erro ao trocar folgas.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Padding de células vazias no modo mensal (Segunda = coluna 0 ... Domingo = coluna 6)
+  const monthLeadingEmpty = useMemo(() => {
+    if (viewMode !== 'month' || days.length === 0) return 0;
+    const firstDow = days[0].weekday; // 0=Dom, 1=Seg...
+    return firstDow === 0 ? 6 : firstDow - 1;
+  }, [viewMode, days]);
+
+  return (
+    <div className="space-y-4">
+      {/* Barra superior: modo Semana/Mês + navegação */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="inline-flex rounded-xl border border-slate-200/80 bg-white p-1 shadow-2xs">
+          <button
+            type="button"
+            onClick={() => setViewMode('week')}
+            className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition ${
+              viewMode === 'week'
+                ? 'bg-slate-900 text-white'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            Semana
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('month')}
+            className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition ${
+              viewMode === 'month'
+                ? 'bg-slate-900 text-white'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            Mês
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={openSwapModal}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-2xs transition hover:bg-slate-50"
+            >
+              <ArrowLeftRight className="h-3.5 w-3.5 text-teal-700" />
+              Trocar folga
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={goToday}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-2xs transition hover:bg-slate-50"
+          >
+            Hoje
+          </button>
+        </div>
+      </div>
+
+      {/* Seletor de período */}
+      <div className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white px-3 py-2.5 shadow-xs">
+        <button
+          type="button"
+          onClick={() => shiftPeriod(-1)}
+          aria-label="Período anterior"
+          className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-600 transition hover:bg-slate-100"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+
+        <div className="text-center">
+          <div className="text-sm font-semibold text-slate-900">
+            {viewMode === 'week'
+              ? formatWeekRange(range.from, range.to)
+              : formatMonthTitle(monthKey)}
+          </div>
+          {isAdmin && (
+            <div className="text-[11px] text-slate-400">
+              Toque em um dia para editar ou marcar feriado
+            </div>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => shiftPeriod(1)}
+          aria-label="Próximo período"
+          className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-600 transition hover:bg-slate-100"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </button>
+      </div>
+
+      {error && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex h-48 items-center justify-center rounded-2xl border border-slate-200/80 bg-white">
+          <Loader2 className="h-6 w-6 animate-spin text-teal-700" />
+        </div>
+      ) : viewMode === 'week' ? (
+        /* VISÃO SEMANAL — Ultra limpa para celular */
+        <div className="space-y-2">
+          {days.map((day) => {
+            const isToday = day.date === today;
+            const offList = day.employees.filter((e) => e.status === 'off');
+            const isMyOff = day.off_employee_ids.includes(user.id);
+            const hasOverride = day.employees.some((e) => e.is_override);
+
+            return (
+              <div
+                key={day.date}
+                onClick={() => isAdmin && !day.is_sunday && setSelectedDay(day)}
+                className={`rounded-2xl border bg-white p-3.5 transition ${
+                  isAdmin && !day.is_sunday ? 'cursor-pointer hover:border-teal-300' : ''
+                } ${
+                  isToday
+                    ? 'border-teal-500 ring-1 ring-teal-500/20'
+                    : isMyOff
+                      ? 'border-emerald-200 bg-emerald-50/30'
+                      : day.holiday
+                        ? 'border-amber-200 bg-amber-50/40'
+                        : 'border-slate-200/80'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  {/* Data e dia da semana */}
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-xl text-center ${
+                        isToday
+                          ? 'bg-teal-700 text-white'
+                          : day.is_sunday
+                            ? 'bg-slate-100 text-slate-400'
+                            : day.holiday
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      <span className="text-[10px] font-medium uppercase leading-none">
+                        {weekdayShort(day.weekday)}
+                      </span>
+                      <span className="mt-0.5 text-sm font-bold leading-none tabular-nums">
+                        {day.date.slice(8, 10)}
+                      </span>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-semibold text-slate-900">
+                          {weekdayFull(day.weekday)}
+                        </span>
+                        {isToday && (
+                          <span className="rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-700">
+                            Hoje
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        {day.is_sunday
+                          ? 'Loja fechada • Folga geral'
+                          : day.holiday
+                            ? `Feriado • ${day.holiday.name}`
+                            : `${day.employees.filter((e) => e.status === 'work').length} trabalhando`}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Quem folga */}
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    {day.is_sunday ? (
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
+                        Domingo
+                      </span>
+                    ) : day.holiday ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                        <Sparkles className="h-3 w-3" />
+                        Feriado
+                      </span>
+                    ) : offList.length > 0 ? (
+                      offList.map((emp) => {
+                        const isMe = emp.employee_id === user.id;
+                        return (
+                          <span
+                            key={emp.employee_id}
+                            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+                              isMe
+                                ? 'bg-teal-700 text-white'
+                                : 'bg-emerald-50 text-emerald-800 border border-emerald-200/80'
+                            }`}
+                          >
+                            <span
+                              className="h-2 w-2 rounded-full"
+                              style={{ backgroundColor: isMe ? '#ffffff' : emp.color }}
+                            />
+                            {emp.name}
+                            {isMe && ' (Você)'}
+                          </span>
+                        );
+                      })
+                    ) : (
+                      <span className="text-xs text-slate-400">Ninguém de folga</span>
+                    )}
+
+                    {isAdmin && !day.is_sunday && (
+                      <Edit3 className="ml-0.5 h-3.5 w-3.5 text-slate-300" />
+                    )}
+                  </div>
+                </div>
+
+                {hasOverride && (
+                  <div className="mt-2 border-t border-slate-100 pt-1.5 text-[11px] text-slate-400">
+                    Ajuste manual aplicado neste dia
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* VISÃO MENSAL — Calendário visual compacto */
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-xs">
+          <div className="mb-2 grid grid-cols-7 text-center text-[11px] font-semibold uppercase text-slate-400">
+            {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((lbl) => (
+              <div key={lbl} className="py-1">
+                {lbl}
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-1">
+            {Array.from({ length: monthLeadingEmpty }).map((_, idx) => (
+              <div key={`empty-${idx}`} className="min-h-16 rounded-xl bg-slate-50/50" />
+            ))}
+
+            {days.map((day) => {
+              const isToday = day.date === today;
+              const isMyOff = day.off_employee_ids.includes(user.id);
+              const offList = day.employees.filter((e) => e.status === 'off');
+
+              return (
+                <button
+                  key={day.date}
+                  type="button"
+                  disabled={!isAdmin || day.is_sunday}
+                  onClick={() => isAdmin && !day.is_sunday && setSelectedDay(day)}
+                  className={`flex min-h-16 flex-col items-start rounded-xl border p-1.5 text-left transition ${
+                    isToday
+                      ? 'border-teal-600 ring-1 ring-teal-600/20'
+                      : isMyOff
+                        ? 'border-emerald-300 bg-emerald-50/70'
+                        : day.holiday
+                          ? 'border-amber-200 bg-amber-50/70'
+                          : day.is_sunday
+                            ? 'border-slate-100 bg-slate-50 text-slate-400'
+                            : 'border-slate-100 bg-white hover:border-slate-300'
+                  } ${isAdmin && !day.is_sunday ? 'cursor-pointer' : 'cursor-default'}`}
+                >
+                  <span
+                    className={`text-[11px] font-bold tabular-nums ${
+                      isToday
+                        ? 'flex h-5 w-5 items-center justify-center rounded-full bg-teal-700 text-white'
+                        : day.is_sunday
+                          ? 'text-slate-400'
+                          : 'text-slate-700'
+                    }`}
+                  >
+                    {Number(day.date.slice(8, 10))}
+                  </span>
+
+                  <div className="mt-1 w-full space-y-0.5 overflow-hidden">
+                    {day.holiday ? (
+                      <span className="block truncate rounded bg-amber-100 px-1 py-0.5 text-[9px] font-semibold text-amber-800">
+                        Feriado
+                      </span>
+                    ) : day.is_sunday ? (
+                      <span className="block text-[9px] text-slate-400">Dom</span>
+                    ) : (
+                      offList.map((emp) => {
+                        const isMe = emp.employee_id === user.id;
+                        return (
+                          <span
+                            key={emp.employee_id}
+                            className={`block truncate rounded px-1 py-0.5 text-[10px] font-semibold ${
+                              isMe
+                                ? 'bg-teal-700 text-white'
+                                : 'bg-emerald-100/80 text-emerald-900'
+                            }`}
+                          >
+                            {emp.name.split(' ')[0]}
+                          </span>
+                        );
+                      })
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Legenda limpa */}
+          <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-2.5 text-[11px] text-slate-500">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-teal-700" />
+              Sua folga
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
+              Folga de colega
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-300" />
+              Feriado (pula fila)
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Admin: Editar dia específico */}
+      <Modal
+        open={Boolean(selectedDay)}
+        onClose={() => setSelectedDay(null)}
+        title={selectedDay ? `${weekdayFull(selectedDay.weekday)}, ${formatFullDateBr(selectedDay.date)}` : ''}
+        subtitle="Ajuste quem folga neste dia ou marque como feriado"
+      >
+        {selectedDay && (
+          <div className="space-y-4">
+            {/* Marcar/desmarcar feriado */}
+            <div className="rounded-2xl border border-amber-200/80 bg-amber-50/50 p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+                  <CalendarIcon className="h-4 w-4 text-amber-600" />
+                  {selectedDay.holiday ? selectedDay.holiday.name : 'Marcar como Feriado'}
+                </div>
+              </div>
+              {!selectedDay.holiday && (
+                <input
+                  type="text"
+                  value={holidayNameInput}
+                  onChange={(e) => setHolidayNameInput(e.target.value)}
+                  placeholder="Nome do feriado (ex.: Carnaval)"
+                  className="mt-2 h-10 w-full rounded-xl border border-amber-200 bg-white px-3 text-sm outline-none focus:border-amber-400"
+                />
+              )}
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => handleToggleDayHoliday(selectedDay)}
+                className="mt-2.5 w-full rounded-xl bg-amber-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:opacity-50"
+              >
+                {selectedDay.holiday
+                  ? 'Abrir loja neste dia (desmarcar feriado)'
+                  : 'Marcar como Feriado (pula a fila)'}
+              </button>
+            </div>
+
+            {/* Alternar folga por funcionária */}
+            {!selectedDay.holiday && (
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Equipe neste dia (toque para alternar)
+                </p>
+                <div className="space-y-1.5">
+                  {selectedDay.employees.map((emp) => {
+                    const isOff = emp.status === 'off';
+                    return (
+                      <button
+                        key={emp.employee_id}
+                        type="button"
+                        disabled={saving}
+                        onClick={() => handleToggleEmployeeOff(selectedDay, emp.employee_id, emp.status)}
+                        className="flex w-full items-center justify-between rounded-xl border border-slate-200/80 bg-white px-3.5 py-2.5 text-left transition hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span
+                            className="h-2.5 w-2.5 rounded-full"
+                            style={{ backgroundColor: emp.color }}
+                          />
+                          <span className="text-sm font-medium text-slate-900">{emp.name}</span>
+                          {emp.is_override && (
+                            <span className="text-[10px] text-slate-400">(manual)</span>
+                          )}
+                        </div>
+                        <span
+                          className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                            isOff
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {isOff ? 'Folga' : 'Trabalha'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {selectedDay.employees.some((e) => e.is_override) && (
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => handleResetDay(selectedDay.date)}
+                    className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Restaurar rodízio automático neste dia
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal Admin: Trocar folga entre duas funcionárias */}
+      <Modal
+        open={swapOpen}
+        onClose={() => setSwapOpen(false)}
+        title="Trocar folga entre funcionárias"
+        subtitle="Cada uma passa a folgar no dia da outra sem alterar o rodízio futuro"
+      >
+        <form onSubmit={handleSwapSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Funcionária 1</label>
+              <select
+                value={swapEmpA}
+                onChange={(e) => setSwapEmpA(Number(e.target.value))}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-sm"
+              >
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Dia da folga atual</label>
+              <input
+                type="date"
+                required
+                value={swapDateA}
+                onChange={(e) => setSwapDateA(e.target.value)}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Funcionária 2</label>
+              <select
+                value={swapEmpB}
+                onChange={(e) => setSwapEmpB(Number(e.target.value))}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-sm"
+              >
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500">Dia da folga atual</label>
+              <input
+                type="date"
+                required
+                value={swapDateB}
+                onChange={(e) => setSwapDateB(e.target.value)}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-sm"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">
+              Observação (opcional)
+            </label>
+            <input
+              type="text"
+              value={swapNote}
+              onChange={(e) => setSwapNote(e.target.value)}
+              placeholder="Ex.: Troca combinada entre elas"
+              className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={saving}
+            className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-teal-700 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:opacity-60"
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Confirmar troca
+          </button>
+        </form>
+      </Modal>
+    </div>
+  );
+}
