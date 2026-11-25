@@ -300,21 +300,24 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
             const offList = day.employees.filter((e) => e.status === 'off');
             const isMyOff = day.off_employee_ids.includes(user.id);
             const hasOverride = day.employees.some((e) => e.is_override);
+            const canEditDay = isAdmin && !day.is_sunday && !day.is_before_start;
 
             return (
               <div
                 key={day.date}
-                onClick={() => isAdmin && !day.is_sunday && setSelectedDay(day)}
+                onClick={() => canEditDay && setSelectedDay(day)}
                 className={`rounded-2xl border bg-white p-3.5 transition ${
-                  isAdmin && !day.is_sunday ? 'cursor-pointer hover:border-teal-300' : ''
+                  canEditDay ? 'cursor-pointer hover:border-teal-300' : ''
                 } ${
                   isToday
                     ? 'border-teal-500 ring-1 ring-teal-500/20'
-                    : isMyOff
-                      ? 'border-emerald-200 bg-emerald-50/30'
-                      : day.holiday
-                        ? 'border-amber-200 bg-amber-50/40'
-                        : 'border-slate-200/80'
+                    : day.is_before_start
+                      ? 'border-slate-100 bg-slate-50/70 opacity-75'
+                      : isMyOff
+                        ? 'border-emerald-200 bg-emerald-50/30'
+                        : day.holiday
+                          ? 'border-amber-200 bg-amber-50/40'
+                          : 'border-slate-200/80'
                 }`}
               >
                 <div className="flex items-center justify-between gap-3">
@@ -324,7 +327,7 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                       className={`flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-xl text-center ${
                         isToday
                           ? 'bg-teal-700 text-white'
-                          : day.is_sunday
+                          : day.is_sunday || day.is_before_start
                             ? 'bg-slate-100 text-slate-400'
                             : day.holiday
                               ? 'bg-amber-100 text-amber-800'
@@ -351,18 +354,24 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                         )}
                       </div>
                       <div className="text-xs text-slate-400">
-                        {day.is_sunday
-                          ? 'Loja fechada • Folga geral'
-                          : day.holiday
-                            ? `Feriado • ${day.holiday.name}`
-                            : `${day.employees.filter((e) => e.status === 'work').length} trabalhando`}
+                        {day.is_before_start
+                          ? 'Antes do início da escala'
+                          : day.is_sunday
+                            ? 'Loja fechada • Folga geral'
+                            : day.holiday
+                              ? `Feriado • ${day.holiday.name}`
+                              : `${day.employees.filter((e) => e.status === 'work').length} trabalhando`}
                       </div>
                     </div>
                   </div>
 
                   {/* Quem folga */}
                   <div className="flex flex-wrap items-center justify-end gap-1.5">
-                    {day.is_sunday ? (
+                    {day.is_before_start ? (
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-400">
+                        Sem escala
+                      </span>
+                    ) : day.is_sunday ? (
                       <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
                         Domingo
                       </span>
@@ -396,7 +405,7 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                       <span className="text-xs text-slate-400">Ninguém de folga</span>
                     )}
 
-                    {isAdmin && !day.is_sunday && (
+                    {canEditDay && (
                       <Edit3 className="ml-0.5 h-3.5 w-3.5 text-slate-300" />
                     )}
                   </div>
@@ -431,30 +440,33 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
               const isToday = day.date === today;
               const isMyOff = day.off_employee_ids.includes(user.id);
               const offList = day.employees.filter((e) => e.status === 'off');
+              const canEditDay = isAdmin && !day.is_sunday && !day.is_before_start;
 
               return (
                 <button
                   key={day.date}
                   type="button"
-                  disabled={!isAdmin || day.is_sunday}
-                  onClick={() => isAdmin && !day.is_sunday && setSelectedDay(day)}
+                  disabled={!canEditDay}
+                  onClick={() => canEditDay && setSelectedDay(day)}
                   className={`flex min-h-16 flex-col items-start rounded-xl border p-1.5 text-left transition ${
                     isToday
                       ? 'border-teal-600 ring-1 ring-teal-600/20'
-                      : isMyOff
-                        ? 'border-emerald-300 bg-emerald-50/70'
-                        : day.holiday
-                          ? 'border-amber-200 bg-amber-50/70'
-                          : day.is_sunday
-                            ? 'border-slate-100 bg-slate-50 text-slate-400'
-                            : 'border-slate-100 bg-white hover:border-slate-300'
-                  } ${isAdmin && !day.is_sunday ? 'cursor-pointer' : 'cursor-default'}`}
+                      : day.is_before_start
+                        ? 'border-slate-100 bg-slate-50/70 text-slate-300'
+                        : isMyOff
+                          ? 'border-emerald-300 bg-emerald-50/70'
+                          : day.holiday
+                            ? 'border-amber-200 bg-amber-50/70'
+                            : day.is_sunday
+                              ? 'border-slate-100 bg-slate-50 text-slate-400'
+                              : 'border-slate-100 bg-white hover:border-slate-300'
+                  } ${canEditDay ? 'cursor-pointer' : 'cursor-default'}`}
                 >
                   <span
                     className={`text-[11px] font-bold tabular-nums ${
                       isToday
                         ? 'flex h-5 w-5 items-center justify-center rounded-full bg-teal-700 text-white'
-                        : day.is_sunday
+                        : day.is_sunday || day.is_before_start
                           ? 'text-slate-400'
                           : 'text-slate-700'
                     }`}
@@ -463,7 +475,9 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                   </span>
 
                   <div className="mt-1 w-full space-y-0.5 overflow-hidden">
-                    {day.holiday ? (
+                    {day.is_before_start ? (
+                      <span className="block text-[9px] text-slate-300">—</span>
+                    ) : day.holiday ? (
                       <span className="block truncate rounded bg-amber-100 px-1 py-0.5 text-[9px] font-semibold text-amber-800">
                         Feriado
                       </span>

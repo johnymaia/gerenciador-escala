@@ -4,6 +4,7 @@ import {
   parseYmd,
 } from './holidays';
 import type {
+  DayEmployeeStatus,
   EmployeeDayHours,
   HolidayItem,
   HolidayOverrideRecord,
@@ -58,13 +59,16 @@ function diffDays(fromYmd: string, toYmd: string): number {
 
 /**
  * Motor do Rodízio — Opção B (Empurra a fila no feriado):
- * - Em semanas normais (sem feriado), toda segunda-feira a fila avança +1 dia da semana
- *   (Seg -> Ter -> Qua -> Qui -> Sex -> Sáb -> Seg).
- * - Quando cai um feriado (Seg-Sáb), o dia é pulado (loja fechada, 0h) e a folga da
- *   funcionária é empurrada para o próximo dia aberto, empurrando a fila toda sem
- *   prejudicar ninguém.
- * - Na virada de domingo após semana com feriado, a fila continua de onde parou
- *   (quem saiu do sábado já folga na segunda seguinte, sem repetir dias consecutivos).
+ * - O cálculo começa ESTRITAMENTE em `settings.rotation_start_date` como 1º dia.
+ * - Dias anteriores a `rotation_start_date` ficam marcados como `before_start` (0h, sem folga).
+ * - A partir de `rotation_start_date`:
+ *   - Em semanas completas sem feriado (6 dias abertos Seg-Sáb), na virada do domingo
+ *     a fila recua 1 posição para que toda a equipe avance +1 dia da semana
+ *     (Seg -> Ter -> Qua -> Qui -> Sex -> Sáb -> Seg).
+ *   - Quando cai um feriado (Seg-Sáb), o dia é pulado (loja fechada, 0h) e a folga é
+ *     empurrada para o próximo dia aberto, sem prejudicar ninguém.
+ *   - Na virada de domingo após semana parcial ou com feriado, a fila continua de onde
+ *     parou (quem sobrou no sábado já folga na segunda seguinte).
  */
 export function computeScheduleRange(params: {
   from: string;
@@ -81,72 +85,40 @@ export function computeScheduleRange(params: {
     .sort((a, b) => a.rotation_order - b.rotation_order || a.id - b.id);
 
   const N = rotationEmployees.length;
-  const anchorMonday = getMondayOfWeek(settings.rotation_start_date);
-  const startMonday = getMondayOfWeek(from);
-  const endSunday = getSundayOfWeek(to);
+  const startDate = settings.rotation_start_date;
+  const endLimit = to > startDate ? to : startDate;
 
-  const minDate = startMonday < anchorMonday ? startMonday : anchorMonday;
-  const maxDate = endSunday > anchorMonday ? endSunday : anchorMonday;
-  const startYear = Number(minDate.slice(0, 4)) - 1;
-  const endYear = Number(maxDate.slice(0, 4)) + 1;
+  const minYear = Math.min(Number(from.slice(0, 4)), Number(startDate.slice(0, 4))) - 1;
+  const maxYear = Math.max(Number(to.slice(0, 4)), Number(startDate.slice(0, 4))) + 1;
+  const closedHolidays = getClosedHolidayMap(minYear, maxYear, holidayOverrides);
 
-  const closedHolidays = getClosedHolidayMap(startYear, endYear, holidayOverrides);
-
-  // Map date -> base off employee id
+  // Map date -> base off employee id (somente para datas >= rotation_start_date)
   const baseOffByDate = new Map<string, number | null>();
 
-  if (N > 0) {
-    // 1. Walk forward from anchorMonday up to maxDate
+  if (N > 0 && endLimit >= startDate) {
     let pointer = 0;
-    let curMonday = anchorMonday;
-    while (curMonday <= maxDate) {
-      let holidaysInWeek = 0;
-      for (let d = 0; d < 6; d++) {
-        const ymd = addDaysYmd(curMonday, d);
-        if (closedHolidays.has(ymd)) {
-          holidaysInWeek++;
-          baseOffByDate.set(ymd, null);
-        } else {
-          baseOffByDate.set(ymd, rotationEmployees[pointer].id);
-          pointer = (pointer + 1) % N;
+    let cur = startDate;
+    let openDaysInWeek = 0;
+    let holidaysInWeek = 0;
+
+    while (cur <= endLimit) {
+      const dow = getWeekday(cur);
+      if (dow === 0) {
+        // Domingo: fecha a semana e ajusta o ponteiro para a próxima segunda
+        if (openDaysInWeek === 6 && holidaysInWeek === 0 && N > 1) {
+          pointer = (pointer - 1 + N) % N;
         }
+        openDaysInWeek = 0;
+        holidaysInWeek = 0;
+      } else if (closedHolidays.has(cur)) {
+        holidaysInWeek++;
+        baseOffByDate.set(cur, null);
+      } else {
+        openDaysInWeek++;
+        baseOffByDate.set(cur, rotationEmployees[pointer].id);
+        pointer = (pointer + 1) % N;
       }
-      if (holidaysInWeek === 0 && N > 1) {
-        pointer = (pointer - 1 + N) % N;
-      }
-      curMonday = addDaysYmd(curMonday, 7);
-    }
-
-    // 2. Walk backward from anchorMonday down to startMonday (if needed)
-    let backPointer = 0; // pointer at the start of anchorMonday
-    let prevMonday = addDaysYmd(anchorMonday, -7);
-    while (prevMonday >= startMonday) {
-      let openDays = 0;
-      let holidaysInWeek = 0;
-      for (let d = 0; d < 6; d++) {
-        const ymd = addDaysYmd(prevMonday, d);
-        if (closedHolidays.has(ymd)) holidaysInWeek++;
-        else openDays++;
-      }
-
-      if (holidaysInWeek === 0 && N > 1) {
-        backPointer = (backPointer + 1) % N;
-      }
-      backPointer = (backPointer - (openDays % N) + N) % N;
-
-      // Fill prevMonday..prevSaturday forward from backPointer
-      let p = backPointer;
-      for (let d = 0; d < 6; d++) {
-        const ymd = addDaysYmd(prevMonday, d);
-        if (closedHolidays.has(ymd)) {
-          baseOffByDate.set(ymd, null);
-        } else {
-          baseOffByDate.set(ymd, rotationEmployees[p].id);
-          p = (p + 1) % N;
-        }
-      }
-
-      prevMonday = addDaysYmd(prevMonday, -7);
+      cur = addDaysYmd(cur, 1);
     }
   }
 
@@ -163,10 +135,21 @@ export function computeScheduleRange(params: {
     const date = addDaysYmd(from, i);
     const weekday = getWeekday(date);
     const isSunday = weekday === 0;
+    const isBeforeStart = date < startDate;
     const holiday: HolidayItem | null = !isSunday ? (closedHolidays.get(date) ?? null) : null;
-    const baseOffId = !isSunday && !holiday ? (baseOffByDate.get(date) ?? null) : null;
+    const baseOffId = !isBeforeStart && !isSunday && !holiday ? (baseOffByDate.get(date) ?? null) : null;
 
     const dayEmployees = rotationEmployees.map((emp) => {
+      if (isBeforeStart) {
+        return {
+          employee_id: emp.id,
+          name: emp.name,
+          color: emp.color,
+          status: 'before_start' as const,
+          is_override: false,
+          note: '',
+        };
+      }
       if (isSunday) {
         return {
           employee_id: emp.id,
@@ -190,7 +173,7 @@ export function computeScheduleRange(params: {
 
       const ov = overrideMap.get(`${date}:${emp.id}`);
       const isBaseOff = baseOffId === emp.id;
-      const status = ov ? ov.status : isBaseOff ? 'off' : 'work';
+      const status: DayEmployeeStatus = ov ? ov.status : isBaseOff ? 'off' : 'work';
 
       return {
         employee_id: emp.id,
@@ -208,6 +191,7 @@ export function computeScheduleRange(params: {
       date,
       weekday,
       is_sunday: isSunday,
+      is_before_start: isBeforeStart,
       holiday,
       off_employee_ids: offIds,
       base_off_employee_id: baseOffId,
@@ -244,13 +228,15 @@ export function computeEmployeePeriodHours(params: {
 
   const days: EmployeeDayHours[] = scheduleDays.map((day) => {
     const entry = day.employees.find((e) => e.employee_id === employee.id);
-    const status = entry
-      ? entry.status
-      : day.is_sunday
-        ? 'sunday'
-        : day.holiday
-          ? 'holiday'
-          : 'work';
+    const status: DayEmployeeStatus = day.is_before_start
+      ? 'before_start'
+      : entry
+        ? entry.status
+        : day.is_sunday
+          ? 'sunday'
+          : day.holiday
+            ? 'holiday'
+            : 'work';
 
     const baseHours = status === 'work' && employee.in_rotation ? dailyHours : 0;
     const dayAdjs = adjByDate.get(day.date) ?? [];

@@ -1,5 +1,7 @@
 export type UserRole = 'admin' | 'employee';
 
+export const DEFAULT_USER_PASSWORD = '123456';
+
 export interface PublicEmployee {
   id: number;
   name: string;
@@ -9,6 +11,7 @@ export interface PublicEmployee {
   rotation_order: number;
   color: string;
   active: boolean;
+  must_change_password: boolean;
 }
 
 export interface ShopSettings {
@@ -17,7 +20,7 @@ export interface ShopSettings {
   close_time: string;
   lunch_hours: number;
   daily_hours: number;
-  rotation_start_date: string; // YYYY-MM-DD (Monday)
+  rotation_start_date: string; // YYYY-MM-DD (primeiro dia do cálculo do rodízio)
 }
 
 export interface HolidayOverrideRecord {
@@ -50,11 +53,13 @@ export interface HourAdjustmentRecord {
   reason: string;
 }
 
+export type DayEmployeeStatus = 'work' | 'off' | 'holiday' | 'sunday' | 'before_start';
+
 export interface ScheduleDayEmployee {
   employee_id: number;
   name: string;
   color: string;
-  status: 'work' | 'off' | 'holiday' | 'sunday';
+  status: DayEmployeeStatus;
   is_override: boolean;
   note: string;
 }
@@ -63,6 +68,7 @@ export interface ScheduleDay {
   date: string; // YYYY-MM-DD
   weekday: number; // 0 = Sun, 1 = Mon ... 6 = Sat
   is_sunday: boolean;
+  is_before_start: boolean;
   holiday: HolidayItem | null;
   off_employee_ids: number[];
   base_off_employee_id: number | null;
@@ -72,7 +78,7 @@ export interface ScheduleDay {
 export interface EmployeeDayHours {
   date: string;
   weekday: number;
-  status: 'work' | 'off' | 'holiday' | 'sunday';
+  status: DayEmployeeStatus;
   holiday_name: string | null;
   base_hours: number;
   adjustment_hours: number;
@@ -98,4 +104,28 @@ export interface EmployeeHoursReport {
   employee: PublicEmployee;
   week: PeriodHoursSummary;
   month: PeriodHoursSummary;
+}
+
+export type ApprovalState = 'pending' | 'approved' | 'rejected';
+export type SwapOverallStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+export interface SwapRequestItem {
+  id: number;
+  requester_id: number;
+  requester_name: string;
+  requester_color: string;
+  requester_date: string;
+  target_id: number;
+  target_name: string;
+  target_color: string;
+  target_date: string;
+  reason: string;
+  target_status: ApprovalState;
+  target_decided_at: string | null;
+  admin_status: ApprovalState;
+  admin_decided_by: number | null;
+  admin_decided_by_name: string | null;
+  admin_decided_at: string | null;
+  status: SwapOverallStatus;
+  created_at: string;
 }

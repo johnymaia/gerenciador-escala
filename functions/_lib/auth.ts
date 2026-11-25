@@ -1,9 +1,11 @@
-import type { UserRole } from '../../shared/types';
-import type { Env } from './http';
+import { DEFAULT_USER_PASSWORD, type PublicEmployee, type UserRole } from '../../shared/types';
+import { errorJson, type Env } from './http';
 
 const COOKIE_NAME = 'escala_session';
 const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 dias
 const PBKDF2_ITERATIONS = 100_000;
+
+export { DEFAULT_USER_PASSWORD };
 
 export interface SessionPayload {
   uid: number;
@@ -148,23 +150,14 @@ export function getCookieValue(request: Request, name: string): string | null {
   return null;
 }
 
-export async function getSessionUser(request: Request, env: Env): Promise<{
-  id: number;
-  name: string;
-  username: string;
-  role: UserRole;
-  in_rotation: boolean;
-  rotation_order: number;
-  color: string;
-  active: boolean;
-} | null> {
+export async function getSessionUser(request: Request, env: Env): Promise<PublicEmployee | null> {
   const token = getCookieValue(request, COOKIE_NAME);
   if (!token) return null;
   const session = await verifySessionToken(token, env);
   if (!session) return null;
 
   const row = await env.DB.prepare(
-    `SELECT id, name, username, role, in_rotation, rotation_order, color, active
+    `SELECT id, name, username, role, in_rotation, rotation_order, color, active, must_change_password
      FROM users WHERE id = ? AND active = 1`,
   )
     .bind(session.uid)
@@ -177,6 +170,7 @@ export async function getSessionUser(request: Request, env: Env): Promise<{
       rotation_order: number;
       color: string;
       active: number;
+      must_change_password: number;
     }>();
 
   if (!row) return null;
@@ -189,5 +183,10 @@ export async function getSessionUser(request: Request, env: Env): Promise<{
     rotation_order: row.rotation_order,
     color: row.color,
     active: Boolean(row.active),
+    must_change_password: Boolean(row.must_change_password),
   };
+}
+
+export function passwordChangeRequiredResponse(): Response {
+  return errorJson('Você precisa alterar a senha padrão (123456) antes de acessar o sistema.', 403);
 }

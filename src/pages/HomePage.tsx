@@ -1,4 +1,4 @@
-import { CalendarDays, Clock, Sparkles, Sun } from 'lucide-react';
+import { ArrowLeftRight, CalendarDays, Sparkles, Sun } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { addDaysYmd } from '../../shared/holidays';
 import { getMondayOfWeek, getTodayBrazilYmd } from '../../shared/schedule';
@@ -7,7 +7,6 @@ import { api } from '../lib/api';
 import {
   formatDayMonth,
   formatFriendlyDate,
-  formatHours,
   weekdayFull,
   weekdayShort,
 } from '../lib/format';
@@ -15,14 +14,13 @@ import {
 interface HomePageProps {
   user: PublicEmployee;
   settings: ShopSettings;
-  onNavigate: (tab: 'schedule' | 'hours') => void;
+  onNavigate: (tab: 'schedule' | 'swaps') => void;
 }
 
 export function HomePage({ user, settings, onNavigate }: HomePageProps) {
   const [days, setDays] = useState<ScheduleDay[]>([]);
   const [today, setToday] = useState(getTodayBrazilYmd());
-  const [weekHours, setWeekHours] = useState<number | null>(null);
-  const [monthHours, setMonthHours] = useState<number | null>(null);
+  const [pendingSwaps, setPendingSwaps] = useState<number>(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,19 +29,12 @@ export function HomePage({ user, settings, onNavigate }: HomePageProps) {
     const thisMonday = getMondayOfWeek(nowYmd);
     const threeWeeksEnd = addDaysYmd(thisMonday, 20);
 
-    Promise.all([
-      api.getSchedule(thisMonday, threeWeeksEnd),
-      api.getHours(nowYmd, nowYmd.slice(0, 7)),
-    ])
-      .then(([schedRes, hoursRes]) => {
+    Promise.all([api.getSchedule(thisMonday, threeWeeksEnd), api.listSwaps()])
+      .then(([schedRes, swapsRes]) => {
         if (!active) return;
         setDays(schedRes.days);
         setToday(schedRes.today);
-        const myReport = hoursRes.reports.find((r) => r.employee.id === user.id);
-        if (myReport) {
-          setWeekHours(myReport.week.total_hours);
-          setMonthHours(myReport.month.total_hours);
-        }
+        setPendingSwaps(swapsRes.pending_action_count);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -64,8 +55,8 @@ export function HomePage({ user, settings, onNavigate }: HomePageProps) {
   if (loading) {
     return (
       <div className="space-y-4">
-        <div className="h-44 animate-pulse rounded-3xl bg-white border border-slate-200/70" />
-        <div className="h-28 animate-pulse rounded-2xl bg-white border border-slate-200/70" />
+        <div className="h-44 animate-pulse rounded-3xl border border-slate-200/70 bg-white" />
+        <div className="h-28 animate-pulse rounded-2xl border border-slate-200/70 bg-white" />
       </div>
     );
   }
@@ -151,7 +142,10 @@ export function HomePage({ user, settings, onNavigate }: HomePageProps) {
 
             let pillClass = 'border-slate-200/80 bg-white text-slate-700';
             let label = 'Trab.';
-            if (isMyOff) {
+            if (day.is_before_start) {
+              pillClass = 'border-slate-100 bg-slate-50 text-slate-300';
+              label = '—';
+            } else if (isMyOff) {
               pillClass = 'border-emerald-300 bg-emerald-50 text-emerald-800';
               label = 'Folga';
             } else if (isHoliday) {
@@ -186,22 +180,26 @@ export function HomePage({ user, settings, onNavigate }: HomePageProps) {
       <div className="grid grid-cols-2 gap-3">
         <button
           type="button"
-          onClick={() => onNavigate('hours')}
+          onClick={() => onNavigate('swaps')}
           className="flex flex-col items-start rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-xs transition hover:border-slate-300 active:scale-[0.99]"
         >
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
-            <Clock className="h-4 w-4" />
+          <div className="flex w-full items-center justify-between">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
+              <ArrowLeftRight className="h-4 w-4" />
+            </div>
+            {pendingSwaps > 0 && (
+              <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-bold text-white">
+                {pendingSwaps}
+              </span>
+            )}
           </div>
-          <span className="mt-3 text-xs font-medium text-slate-500">Minhas horas</span>
-          <span className="mt-0.5 text-lg font-bold tabular-nums text-slate-900">
-            {weekHours !== null ? formatHours(weekHours) : '—'}
-            <span className="ml-1 text-xs font-normal text-slate-400">sem.</span>
+          <span className="mt-3 text-xs font-medium text-slate-500">Trocas de folga</span>
+          <span className="mt-0.5 text-base font-semibold text-slate-900">
+            {pendingSwaps > 0 ? 'Aprovar pedido' : 'Pedir troca'}
           </span>
-          {monthHours !== null && (
-            <span className="text-xs text-slate-400 tabular-nums">
-              {formatHours(monthHours)} no mês
-            </span>
-          )}
+          <span className="text-xs text-slate-400">
+            {pendingSwaps > 0 ? `${pendingSwaps} aguardando você` : 'Combinar com colega'}
+          </span>
         </button>
 
         <button
@@ -221,7 +219,7 @@ export function HomePage({ user, settings, onNavigate }: HomePageProps) {
       {/* Info de folga hoje */}
       {(() => {
         const todayData = thisWeekDays.find((d) => d.date === today);
-        if (!todayData || todayData.is_sunday || todayData.holiday) return null;
+        if (!todayData || todayData.is_sunday || todayData.holiday || todayData.is_before_start) return null;
         const offToday = todayData.employees.filter((e) => e.status === 'off');
         if (offToday.length === 0) return null;
         return (

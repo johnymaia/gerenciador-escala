@@ -4,7 +4,7 @@ import {
   getOptionalDatesForYear,
 } from '../../../shared/holidays';
 import { getTodayBrazilYmd } from '../../../shared/schedule';
-import { getSessionUser } from '../../_lib/auth';
+import { getSessionUser, passwordChangeRequiredResponse } from '../../_lib/auth';
 import { ensureSeeded, getHolidayOverrides } from '../../_lib/db';
 import { errorJson, isValidYmd, json, readJsonBody, type Env } from '../../_lib/http';
 
@@ -12,6 +12,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   await ensureSeeded(env);
   const user = await getSessionUser(request, env);
   if (!user) return errorJson('Não autenticado.', 401);
+  if (user.must_change_password) return passwordChangeRequiredResponse();
 
   const url = new URL(request.url);
   const defaultYear = Number(getTodayBrazilYmd().slice(0, 4));
@@ -35,6 +36,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   await ensureSeeded(env);
   const user = await getSessionUser(request, env);
   if (!user) return errorJson('Não autenticado.', 401);
+  if (user.must_change_password) return passwordChangeRequiredResponse();
   if (user.role !== 'admin') return errorJson('Acesso restrito a administradores.', 403);
 
   const body = await readJsonBody<{
