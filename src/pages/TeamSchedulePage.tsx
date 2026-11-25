@@ -55,6 +55,7 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
   const [swapDateB, setSwapDateB] = useState('');
   const [swapNote, setSwapNote] = useState('');
   const [holidayNameInput, setHolidayNameInput] = useState('');
+  const [confirmUndoSwapId, setConfirmUndoSwapId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
   const range = useMemo(() => {
@@ -127,6 +128,21 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
       setSelectedDay(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erro ao restaurar dia.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleUndoSwap(swapId: number) {
+    setSaving(true);
+    setError('');
+    try {
+      await api.respondSwapRequest(swapId, { decision: 'undo' });
+      setConfirmUndoSwapId(null);
+      setSelectedDay(null);
+      await loadSchedule();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erro ao desfazer troca.');
     } finally {
       setSaving(false);
     }
@@ -576,7 +592,10 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
       {/* Modal do Dia: Detalhes da Troca (ambos perfis) + Edição (somente Admin) */}
       <Modal
         open={Boolean(selectedDay)}
-        onClose={() => setSelectedDay(null)}
+        onClose={() => {
+          setConfirmUndoSwapId(null);
+          setSelectedDay(null);
+        }}
         title={
           selectedDay
             ? `${weekdayFull(selectedDay.weekday)}, ${formatFullDateBr(selectedDay.date)}`
@@ -596,64 +615,110 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                 <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">
                   Troca de folga neste dia
                 </p>
-                {selectedDay.swaps.map((sw) => (
-                  <div
-                    key={sw.id}
-                    className="rounded-2xl border border-sky-200 bg-sky-50/70 p-3.5 text-xs text-slate-700"
-                  >
-                    <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-slate-900">
-                      <span
-                        className="h-2.5 w-2.5 rounded-full"
-                        style={{ backgroundColor: sw.requester_color }}
-                      />
-                      <span>{sw.requester_name}</span>
-                      <ArrowLeftRight className="h-3.5 w-3.5 text-sky-600" />
-                      <span
-                        className="h-2.5 w-2.5 rounded-full"
-                        style={{ backgroundColor: sw.target_color }}
-                      />
-                      <span>{sw.target_name}</span>
-                    </div>
+                {selectedDay.swaps.map((sw) => {
+                  const canUndoThisSwap =
+                    isAdmin &&
+                    sw.requester_date >= today &&
+                    sw.target_date >= today;
 
-                    <div className="mt-2.5 space-y-1.5 rounded-xl bg-white/90 p-2.5">
-                      <div>
-                        <strong className="text-slate-900">{sw.requester_name}</strong> passou a
-                        folgar em{' '}
-                        <strong className="text-teal-800">
-                          {weekdayShort(getWeekday(sw.target_date))},{' '}
-                          {formatDayMonth(sw.target_date)}
-                        </strong>{' '}
-                        <span className="text-slate-400">
-                          (antes era {weekdayShort(getWeekday(sw.requester_date))},{' '}
-                          {formatDayMonth(sw.requester_date)})
-                        </span>
+                  return (
+                    <div
+                      key={sw.id}
+                      className="rounded-2xl border border-sky-200 bg-sky-50/70 p-3.5 text-xs text-slate-700"
+                    >
+                      <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-slate-900">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: sw.requester_color }}
+                        />
+                        <span>{sw.requester_name}</span>
+                        <ArrowLeftRight className="h-3.5 w-3.5 text-sky-600" />
+                        <span
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: sw.target_color }}
+                        />
+                        <span>{sw.target_name}</span>
                       </div>
-                      <div>
-                        <strong className="text-slate-900">{sw.target_name}</strong> passou a folgar
-                        em{' '}
-                        <strong className="text-teal-800">
-                          {weekdayShort(getWeekday(sw.requester_date))},{' '}
-                          {formatDayMonth(sw.requester_date)}
-                        </strong>{' '}
-                        <span className="text-slate-400">
-                          (antes era {weekdayShort(getWeekday(sw.target_date))},{' '}
-                          {formatDayMonth(sw.target_date)})
-                        </span>
-                      </div>
-                    </div>
 
-                    {sw.reason && (
-                      <p className="mt-2 text-xs text-slate-600">
-                        <span className="font-semibold text-slate-500">Motivo:</span> {sw.reason}
-                      </p>
-                    )}
-                    {sw.approved_by_name && (
-                      <p className="mt-1 text-[11px] text-slate-500">
-                        Aprovado por <strong>{sw.approved_by_name}</strong>
-                      </p>
-                    )}
-                  </div>
-                ))}
+                      <div className="mt-2.5 space-y-1.5 rounded-xl bg-white/90 p-2.5">
+                        <div>
+                          <strong className="text-slate-900">{sw.requester_name}</strong> passou a
+                          folgar em{' '}
+                          <strong className="text-teal-800">
+                            {weekdayShort(getWeekday(sw.target_date))},{' '}
+                            {formatDayMonth(sw.target_date)}
+                          </strong>{' '}
+                          <span className="text-slate-400">
+                            (antes era {weekdayShort(getWeekday(sw.requester_date))},{' '}
+                            {formatDayMonth(sw.requester_date)})
+                          </span>
+                        </div>
+                        <div>
+                          <strong className="text-slate-900">{sw.target_name}</strong> passou a
+                          folgar em{' '}
+                          <strong className="text-teal-800">
+                            {weekdayShort(getWeekday(sw.requester_date))},{' '}
+                            {formatDayMonth(sw.requester_date)}
+                          </strong>{' '}
+                          <span className="text-slate-400">
+                            (antes era {weekdayShort(getWeekday(sw.target_date))},{' '}
+                            {formatDayMonth(sw.target_date)})
+                          </span>
+                        </div>
+                      </div>
+
+                      {sw.reason && (
+                        <p className="mt-2 text-xs text-slate-600">
+                          <span className="font-semibold text-slate-500">Motivo:</span> {sw.reason}
+                        </p>
+                      )}
+                      {sw.approved_by_name && (
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          Aprovado por <strong>{sw.approved_by_name}</strong>
+                        </p>
+                      )}
+
+                      {canUndoThisSwap && confirmUndoSwapId !== sw.id && (
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => setConfirmUndoSwapId(sw.id)}
+                          className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-200 bg-white py-2 text-xs font-semibold text-amber-900 transition hover:bg-amber-50 disabled:opacity-50"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          Desfazer esta troca
+                        </button>
+                      )}
+
+                      {canUndoThisSwap && confirmUndoSwapId === sw.id && (
+                        <div className="mt-3 space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-2.5">
+                          <p className="text-[11px] font-medium text-amber-950">
+                            Desfazer a troca entre <strong>{sw.requester_name}</strong> e{' '}
+                            <strong>{sw.target_name}</strong>? As duas datas voltarão ao rodízio
+                            original.
+                          </p>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setConfirmUndoSwapId(null)}
+                              className="flex-1 rounded-lg border border-slate-200 bg-white py-1.5 text-xs font-semibold text-slate-600"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => handleUndoSwap(sw.id)}
+                              className="flex-1 rounded-lg bg-amber-600 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                            >
+                              Confirmar
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 

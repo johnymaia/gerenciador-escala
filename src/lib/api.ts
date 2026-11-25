@@ -100,9 +100,9 @@ export const api = {
     }),
   respondSwapRequest: (
     id: number,
-    payload: { decision: 'approved' | 'rejected' | 'cancelled'; as?: 'target' | 'admin' },
+    payload: { decision: 'approved' | 'rejected' | 'cancelled' | 'undo'; as?: 'target' | 'admin' },
   ) =>
-    request<{ ok: boolean; status: string }>(`/api/swaps/${id}/respond`, {
+    request<{ ok: boolean; status: string; undone?: boolean }>(`/api/swaps/${id}/respond`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

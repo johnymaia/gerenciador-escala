@@ -1,3 +1,4 @@
+import { getTodayBrazilYmd } from '../../../../shared/schedule';
 import type { ApprovalState, SwapOverallStatus } from '../../../../shared/types';
 import { getSessionUser, passwordChangeRequiredResponse } from '../../../_lib/auth';
 import { ensureSeeded } from '../../../_lib/db';
@@ -31,17 +32,59 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     }>();
 
   if (!swap) return errorJson('Solicitação não encontrada.', 404);
-  if (swap.status !== 'pending') {
-    return errorJson('Esta solicitação já foi finalizada.', 400);
-  }
 
   const body = await readJsonBody<{
-    decision?: 'approved' | 'rejected' | 'cancelled';
+    decision?: 'approved' | 'rejected' | 'cancelled' | 'undo';
     as?: 'target' | 'admin';
   }>(request);
 
-  if (!body?.decision || !['approved', 'rejected', 'cancelled'].includes(body.decision)) {
+  if (!body?.decision || !['approved', 'rejected', 'cancelled', 'undo'].includes(body.decision)) {
     return errorJson('Decisão inválida.', 400);
+  }
+
+  // Desfazer uma troca já aprovada (permitido apenas para qualquer Administrador, se nenhuma data passou)
+  if (body.decision === 'undo') {
+    if (swap.status !== 'approved') {
+      return errorJson('Apenas trocas já aprovadas podem ser desfeitas.', 400);
+    }
+
+    if (user.role !== 'admin') {
+      return errorJson('Apenas administradores podem desfazer uma troca aprovada.', 403);
+    }
+
+    const today = getTodayBrazilYmd();
+    if (swap.requester_date < today || swap.target_date < today) {
+      return errorJson(
+        'Não é possível desfazer esta troca porque uma das datas já passou.',
+        400,
+      );
+    }
+
+    await env.DB.batch([
+      env.DB.prepare("UPDATE swap_requests SET status = 'cancelled' WHERE id = ?").bind(id),
+      env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?').bind(
+        swap.requester_date,
+        swap.requester_id,
+      ),
+      env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?').bind(
+        swap.target_date,
+        swap.requester_id,
+      ),
+      env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?').bind(
+        swap.target_date,
+        swap.target_id,
+      ),
+      env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?').bind(
+        swap.requester_date,
+        swap.target_id,
+      ),
+    ]);
+
+    return json({ ok: true, status: 'cancelled', undone: true });
+  }
+
+  if (swap.status !== 'pending') {
+    return errorJson('Esta solicitação já foi finalizada.', 400);
   }
 
   // Cancelamento por quem solicitou
