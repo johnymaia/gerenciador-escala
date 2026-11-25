@@ -64,6 +64,20 @@ export interface ScheduleDayEmployee {
   note: string;
 }
 
+export interface DaySwapSummary {
+  id: number;
+  requester_id: number;
+  requester_name: string;
+  requester_color: string;
+  requester_date: string;
+  target_id: number;
+  target_name: string;
+  target_color: string;
+  target_date: string;
+  reason: string;
+  approved_by_name: string | null;
+}
+
 export interface ScheduleDay {
   date: string; // YYYY-MM-DD
   weekday: number; // 0 = Sun, 1 = Mon ... 6 = Sat
@@ -73,6 +87,8 @@ export interface ScheduleDay {
   off_employee_ids: number[];
   base_off_employee_id: number | null;
   employees: ScheduleDayEmployee[];
+  swaps: DaySwapSummary[];
+  has_manual_change: boolean;
 }
 
 export interface EmployeeDayHours {
