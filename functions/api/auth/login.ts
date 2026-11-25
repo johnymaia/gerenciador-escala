@@ -1,6 +1,7 @@
 import {
   buildSessionCookie,
   createSessionToken,
+  DEFAULT_USER_PASSWORD,
   verifyPassword,
 } from '../../_lib/auth';
 import { ensureSeeded, getSettings } from '../../_lib/db';
@@ -27,7 +28,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   const row = await env.DB.prepare(
-    `SELECT id, name, username, password_hash, role, in_rotation, rotation_order, color, active
+    `SELECT id, name, username, password_hash, role, in_rotation, rotation_order, color, active, must_change_password
      FROM users WHERE username = ?`,
   )
     .bind(username)
@@ -41,6 +42,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       rotation_order: number;
       color: string;
       active: number;
+      must_change_password: number;
     }>();
 
   if (!row || !row.active) {
@@ -50,6 +52,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const valid = await verifyPassword(body.password, row.password_hash);
   if (!valid) {
     return errorJson('Usuário ou senha incorretos.', 401);
+  }
+
+  // Se a senha for a padrão (123456), obriga alteração no primeiro login
+  const mustChangePassword = Boolean(row.must_change_password) || body.password === DEFAULT_USER_PASSWORD;
+  if (mustChangePassword && !row.must_change_password) {
+    await env.DB.prepare('UPDATE users SET must_change_password = 1 WHERE id = ?')
+      .bind(row.id)
+      .run();
   }
 
   const token = await createSessionToken(
@@ -69,6 +79,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         rotation_order: row.rotation_order,
         color: row.color,
         active: Boolean(row.active),
+        must_change_password: mustChangePassword,
       },
       settings,
     },

@@ -1,5 +1,10 @@
 import type { UserRole } from '../../../shared/types';
-import { getSessionUser, hashPassword } from '../../_lib/auth';
+import {
+  DEFAULT_USER_PASSWORD,
+  getSessionUser,
+  hashPassword,
+  passwordChangeRequiredResponse,
+} from '../../_lib/auth';
 import { ensureSeeded, getAllEmployees } from '../../_lib/db';
 import {
   errorJson,
@@ -15,6 +20,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   await ensureSeeded(env);
   const user = await getSessionUser(request, env);
   if (!user) return errorJson('Não autenticado.', 401);
+  if (user.must_change_password) return passwordChangeRequiredResponse();
   if (user.role !== 'admin') return errorJson('Acesso restrito a administradores.', 403);
 
   const employees = await getAllEmployees(env, true);
@@ -25,23 +31,20 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   await ensureSeeded(env);
   const user = await getSessionUser(request, env);
   if (!user) return errorJson('Não autenticado.', 401);
+  if (user.must_change_password) return passwordChangeRequiredResponse();
   if (user.role !== 'admin') return errorJson('Acesso restrito a administradores.', 403);
 
   const body = await readJsonBody<{
     name?: string;
     username?: string;
-    password?: string;
     role?: UserRole;
     in_rotation?: boolean;
     rotation_order?: number;
     color?: string;
   }>(request);
 
-  if (!body?.name?.trim() || !body?.username?.trim() || !body?.password) {
-    return errorJson('Preencha nome, usuário e senha.', 400);
-  }
-  if (body.password.length < 4) {
-    return errorJson('A senha precisa ter pelo menos 4 caracteres.', 400);
+  if (!body?.name?.trim() || !body?.username?.trim()) {
+    return errorJson('Preencha nome e usuário.', 400);
   }
 
   const username = normalizeUsername(body.username);
@@ -65,11 +68,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   const countRow = await env.DB.prepare('SELECT COUNT(*) as total FROM users').first<{ total: number }>();
   const color = body.color || PALETTE[(countRow?.total ?? 0) % PALETTE.length];
-  const passwordHash = await hashPassword(body.password);
+
+  // Todo novo usuário recebe obrigatoriamente a senha padrão (123456) e troca no 1º acesso
+  const passwordHash = await hashPassword(DEFAULT_USER_PASSWORD);
 
   const result = await env.DB.prepare(
-    `INSERT INTO users (name, username, password_hash, role, in_rotation, rotation_order, color, active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+    `INSERT INTO users (name, username, password_hash, role, in_rotation, rotation_order, color, active, must_change_password)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1)`,
   )
     .bind(body.name.trim(), username, passwordHash, role, inRotation ? 1 : 0, nextOrder, color)
     .run();
@@ -84,6 +89,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       rotation_order: nextOrder,
       color,
       active: true,
+      must_change_password: true,
     },
     201,
   );
