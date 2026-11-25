@@ -186,6 +186,7 @@ export function computeScheduleRange(params: {
     });
 
     const offIds = dayEmployees.filter((e) => e.status === 'off').map((e) => e.employee_id);
+    const hasOverride = dayEmployees.some((e) => e.is_override);
 
     days.push({
       date,
@@ -196,6 +197,8 @@ export function computeScheduleRange(params: {
       off_employee_ids: offIds,
       base_off_employee_id: baseOffId,
       employees: dayEmployees,
+      swaps: [],
+      has_manual_change: hasOverride,
     });
   }
 

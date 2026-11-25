@@ -36,6 +36,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     const note = body.note?.trim() || 'Troca de folga';
+    const nowIso = new Date().toISOString();
     await env.DB.batch([
       env.DB.prepare(
         `INSERT INTO schedule_overrides (date, employee_id, status, note)
@@ -57,6 +58,22 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
          VALUES (?, ?, 'off', ?)
          ON CONFLICT(date, employee_id) DO UPDATE SET status = 'off', note = excluded.note`,
       ).bind(body.date_a, body.employee_b, note),
+      // Também registra a troca direta do admin como aprovada para aparecer detalhada no calendário
+      env.DB.prepare(
+        `INSERT INTO swap_requests (
+           requester_id, requester_date, target_id, target_date, reason,
+           target_status, target_decided_at, admin_status, admin_decided_by, admin_decided_at, status
+         ) VALUES (?, ?, ?, ?, ?, 'approved', ?, 'approved', ?, ?, 'approved')`,
+      ).bind(
+        body.employee_a,
+        body.date_a,
+        body.employee_b,
+        body.date_b,
+        note,
+        nowIso,
+        user.id,
+        nowIso,
+      ),
     ]);
 
     return json({ ok: true });
@@ -95,7 +112,13 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
       .bind(date, employeeId)
       .run();
   } else {
-    await env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ?').bind(date).run();
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ?').bind(date),
+      env.DB.prepare(
+        `UPDATE swap_requests SET status = 'cancelled'
+         WHERE status = 'approved' AND (requester_date = ? OR target_date = ?)`,
+      ).bind(date, date),
+    ]);
   }
 
   return json({ ok: true });
