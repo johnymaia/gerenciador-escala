@@ -1,5 +1,4 @@
-import { getMondayOfWeek } from '../../../shared/schedule';
-import { getSessionUser } from '../../_lib/auth';
+import { getSessionUser, passwordChangeRequiredResponse } from '../../_lib/auth';
 import { ensureSeeded, getSettings } from '../../_lib/db';
 import { errorJson, isValidYmd, json, readJsonBody, type Env } from '../../_lib/http';
 
@@ -7,6 +6,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   await ensureSeeded(env);
   const user = await getSessionUser(request, env);
   if (!user) return errorJson('Não autenticado.', 401);
+  if (user.must_change_password) return passwordChangeRequiredResponse();
   const settings = await getSettings(env);
   return json({ settings });
 };
@@ -15,6 +15,7 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env }) => {
   await ensureSeeded(env);
   const user = await getSessionUser(request, env);
   if (!user) return errorJson('Não autenticado.', 401);
+  if (user.must_change_password) return passwordChangeRequiredResponse();
   if (user.role !== 'admin') return errorJson('Acesso restrito a administradores.', 403);
 
   const current = await getSettings(env);
@@ -35,9 +36,10 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env }) => {
   const closeTime = body.close_time || current.close_time;
   const lunchHours = typeof body.lunch_hours === 'number' ? body.lunch_hours : current.lunch_hours;
   const dailyHours = typeof body.daily_hours === 'number' && body.daily_hours > 0 ? body.daily_hours : current.daily_hours;
+  // Mantém EXATAMENTE a data de início escolhida pelo administrador (1º dia do cálculo do rodízio)
   const rotationStart =
     body.rotation_start_date && isValidYmd(body.rotation_start_date)
-      ? getMondayOfWeek(body.rotation_start_date)
+      ? body.rotation_start_date
       : current.rotation_start_date;
 
   await env.DB.prepare(

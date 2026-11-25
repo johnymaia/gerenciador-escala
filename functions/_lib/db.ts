@@ -1,10 +1,11 @@
-import type {
-  HolidayOverrideRecord,
-  HourAdjustmentRecord,
-  PublicEmployee,
-  ScheduleOverrideRecord,
-  ShopSettings,
-  UserRole,
+import {
+  DEFAULT_USER_PASSWORD,
+  type HolidayOverrideRecord,
+  type HourAdjustmentRecord,
+  type PublicEmployee,
+  type ScheduleOverrideRecord,
+  type ShopSettings,
+  type UserRole,
 } from '../../shared/types';
 import { getMondayOfWeek, getTodayBrazilYmd } from '../../shared/schedule';
 import { hashPassword } from './auth';
@@ -15,13 +16,12 @@ const DEFAULT_COLORS = ['#0F766E', '#0284C7', '#7C3AED', '#DB2777', '#D97706', '
 let seededInIsolate = false;
 
 /**
- * Garante que na primeira inicialização (local ou produção) exista o admin padrão
- * e as 6 funcionárias iniciais de exemplo para o site já abrir pronto para uso.
+ * Garante schema atualizado (inclusive coluna must_change_password) e seed inicial
+ * com senha padrão 123456 para todos (inclusive admin), exigindo troca no 1º acesso.
  */
 export async function ensureSeeded(env: Env): Promise<void> {
   if (seededInIsolate) return;
 
-  // Garante criação automática das tabelas caso o banco D1 acabe de ser criado no painel
   await env.DB.batch([
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,11 +33,12 @@ export async function ensureSeeded(env: Env): Promise<void> {
       rotation_order INTEGER NOT NULL DEFAULT 0,
       color TEXT NOT NULL DEFAULT '#0F766E',
       active INTEGER NOT NULL DEFAULT 1,
+      must_change_password INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
-      shop_name TEXT NOT NULL DEFAULT 'Lotérica',
+      shop_name TEXT NOT NULL DEFAULT 'Lotérica Daimond',
       open_time TEXT NOT NULL DEFAULT '10:00',
       close_time TEXT NOT NULL DEFAULT '19:00',
       lunch_hours REAL NOT NULL DEFAULT 1,
@@ -69,7 +70,34 @@ export async function ensureSeeded(env: Env): Promise<void> {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE
     )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS swap_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      requester_id INTEGER NOT NULL,
+      requester_date TEXT NOT NULL,
+      target_id INTEGER NOT NULL,
+      target_date TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT '',
+      target_status TEXT NOT NULL DEFAULT 'pending' CHECK (target_status IN ('pending', 'approved', 'rejected')),
+      target_decided_at TEXT,
+      admin_status TEXT NOT NULL DEFAULT 'pending' CHECK (admin_status IN ('pending', 'approved', 'rejected')),
+      admin_decided_by INTEGER,
+      admin_decided_at TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (requester_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (target_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (admin_decided_by) REFERENCES users(id) ON DELETE SET NULL
+    )`),
   ]);
+
+  // Garante coluna must_change_password em bancos já existentes
+  const cols = await env.DB.prepare('PRAGMA table_info(users)').all<{ name: string }>();
+  const hasMustChange = (cols.results ?? []).some((c) => c.name === 'must_change_password');
+  if (!hasMustChange) {
+    await env.DB.prepare(
+      'ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 1',
+    ).run();
+  }
 
   const existing = await env.DB.prepare('SELECT COUNT(*) as total FROM users').first<{ total: number }>();
   if (existing && existing.total > 0) {
@@ -80,17 +108,17 @@ export async function ensureSeeded(env: Env): Promise<void> {
   const monday = getMondayOfWeek(getTodayBrazilYmd());
   await env.DB.prepare(
     `INSERT OR IGNORE INTO settings (id, shop_name, open_time, close_time, lunch_hours, daily_hours, rotation_start_date)
-     VALUES (1, 'Lotérica', '10:00', '19:00', 1, 8, ?)`,
+     VALUES (1, 'Lotérica Daimond', '10:00', '19:00', 1, 8, ?)`,
   )
     .bind(monday)
     .run();
 
-  const adminHash = await hashPassword('admin123');
+  const defaultHash = await hashPassword(DEFAULT_USER_PASSWORD);
   await env.DB.prepare(
-    `INSERT OR IGNORE INTO users (name, username, password_hash, role, in_rotation, rotation_order, color, active)
-     VALUES (?, ?, ?, 'admin', 0, 0, '#0F172A', 1)`,
+    `INSERT OR IGNORE INTO users (name, username, password_hash, role, in_rotation, rotation_order, color, active, must_change_password)
+     VALUES (?, ?, ?, 'admin', 0, 0, '#0F172A', 1, 1)`,
   )
-    .bind('Administrador', 'admin', adminHash)
+    .bind('Administrador', 'admin', defaultHash)
     .run();
 
   const sampleEmployees = [
@@ -102,13 +130,12 @@ export async function ensureSeeded(env: Env): Promise<void> {
     { name: 'Fernanda', username: 'fernanda', order: 6, color: DEFAULT_COLORS[5] },
   ];
 
-  const empHash = await hashPassword('123456');
   for (const emp of sampleEmployees) {
     await env.DB.prepare(
-      `INSERT OR IGNORE INTO users (name, username, password_hash, role, in_rotation, rotation_order, color, active)
-       VALUES (?, ?, ?, 'employee', 1, ?, ?, 1)`,
+      `INSERT OR IGNORE INTO users (name, username, password_hash, role, in_rotation, rotation_order, color, active, must_change_password)
+       VALUES (?, ?, ?, 'employee', 1, ?, ?, 1, 1)`,
     )
-      .bind(emp.name, emp.username, empHash, emp.order, emp.color)
+      .bind(emp.name, emp.username, defaultHash, emp.order, emp.color)
       .run();
   }
 
@@ -123,7 +150,7 @@ export async function getSettings(env: Env): Promise<ShopSettings> {
 
   if (row) return row;
   return {
-    shop_name: 'Lotérica',
+    shop_name: 'Lotérica Daimond',
     open_time: '10:00',
     close_time: '19:00',
     lunch_hours: 1,
@@ -134,9 +161,9 @@ export async function getSettings(env: Env): Promise<ShopSettings> {
 
 export async function getAllEmployees(env: Env, includeInactive = false): Promise<PublicEmployee[]> {
   const sql = includeInactive
-    ? `SELECT id, name, username, role, in_rotation, rotation_order, color, active
+    ? `SELECT id, name, username, role, in_rotation, rotation_order, color, active, must_change_password
        FROM users ORDER BY active DESC, in_rotation DESC, rotation_order ASC, name ASC`
-    : `SELECT id, name, username, role, in_rotation, rotation_order, color, active
+    : `SELECT id, name, username, role, in_rotation, rotation_order, color, active, must_change_password
        FROM users WHERE active = 1 ORDER BY in_rotation DESC, rotation_order ASC, name ASC`;
 
   const { results } = await env.DB.prepare(sql).all<{
@@ -148,6 +175,7 @@ export async function getAllEmployees(env: Env, includeInactive = false): Promis
     rotation_order: number;
     color: string;
     active: number;
+    must_change_password: number;
   }>();
 
   return (results ?? []).map((r) => ({
@@ -159,6 +187,7 @@ export async function getAllEmployees(env: Env, includeInactive = false): Promis
     rotation_order: r.rotation_order,
     color: r.color,
     active: Boolean(r.active),
+    must_change_password: Boolean(r.must_change_password),
   }));
 }
 

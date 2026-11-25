@@ -4,6 +4,7 @@ import type {
   PublicEmployee,
   ScheduleDay,
   ShopSettings,
+  SwapRequestItem,
   UserRole,
 } from '../../shared/types';
 
@@ -60,6 +61,11 @@ export interface HolidaysResponse {
   optional_suggestions: Array<{ date: string; name: string }>;
 }
 
+export interface SwapsResponse {
+  requests: SwapRequestItem[];
+  pending_action_count: number;
+}
+
 export const api = {
   me: () => request<AuthResponse>('/api/auth/me'),
   login: (username: string, password: string) =>
@@ -68,6 +74,11 @@ export const api = {
       body: JSON.stringify({ username, password }),
     }),
   logout: () => request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
+  changePassword: (payload: { current_password?: string; new_password: string }) =>
+    request<{ ok: boolean; user: PublicEmployee }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   getSchedule: (from: string, to: string) =>
     request<ScheduleResponse>(`/api/schedule?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
@@ -75,12 +86,32 @@ export const api = {
   getHours: (weekDate: string, month: string) =>
     request<HoursResponse>(`/api/hours?weekDate=${encodeURIComponent(weekDate)}&month=${encodeURIComponent(month)}`),
 
+  // Solicitações de troca de folga (dupla aprovação)
+  listSwaps: () => request<SwapsResponse>('/api/swaps'),
+  createSwapRequest: (payload: {
+    requester_date: string;
+    target_id: number;
+    target_date: string;
+    reason?: string;
+  }) =>
+    request<{ ok: boolean; id: number }>('/api/swaps', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  respondSwapRequest: (
+    id: number,
+    payload: { decision: 'approved' | 'rejected' | 'cancelled'; as?: 'target' | 'admin' },
+  ) =>
+    request<{ ok: boolean; status: string }>(`/api/swaps/${id}/respond`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   // Admin: Funcionários
   listEmployees: () => request<{ employees: PublicEmployee[] }>('/api/admin/employees'),
   createEmployee: (payload: {
     name: string;
     username: string;
-    password: string;
     role: UserRole;
     in_rotation: boolean;
     rotation_order?: number;
@@ -95,7 +126,7 @@ export const api = {
     payload: Partial<{
       name: string;
       username: string;
-      password: string;
+      reset_password: boolean;
       role: UserRole;
       in_rotation: boolean;
       rotation_order: number;

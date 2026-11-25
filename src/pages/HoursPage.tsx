@@ -476,13 +476,15 @@ function HoursDayList({
       <div className="divide-y divide-slate-100">
         {period.days.map((d) => {
           const statusLabel =
-            d.status === 'work'
-              ? 'Trabalho'
-              : d.status === 'off'
-                ? 'Folga'
-                : d.status === 'holiday'
-                  ? `Feriado${d.holiday_name ? ` • ${d.holiday_name}` : ''}`
-                  : 'Domingo';
+            d.status === 'before_start'
+              ? 'Antes da escala'
+              : d.status === 'work'
+                ? 'Trabalho'
+                : d.status === 'off'
+                  ? 'Folga'
+                  : d.status === 'holiday'
+                    ? `Feriado${d.holiday_name ? ` • ${d.holiday_name}` : ''}`
+                    : 'Domingo';
 
           return (
             <div key={d.date} className="py-2.5 text-sm">

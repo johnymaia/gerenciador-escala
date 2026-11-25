@@ -4,7 +4,7 @@ import {
   getSundayOfWeek,
   getTodayBrazilYmd,
 } from '../../shared/schedule';
-import { getSessionUser } from '../_lib/auth';
+import { getSessionUser, passwordChangeRequiredResponse } from '../_lib/auth';
 import {
   ensureSeeded,
   getAllEmployees,
@@ -18,6 +18,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   await ensureSeeded(env);
   const user = await getSessionUser(request, env);
   if (!user) return errorJson('Não autenticado.', 401);
+  if (user.must_change_password) return passwordChangeRequiredResponse();
 
   const url = new URL(request.url);
   const today = getTodayBrazilYmd();

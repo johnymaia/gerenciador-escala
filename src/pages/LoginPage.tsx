@@ -36,10 +36,10 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
             <CalendarCheck2 className="h-7 w-7" />
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-            Escala de Folgas
+            Lotérica Daimond
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Acesse com seu usuário e senha
+            Escala de folgas • Acesse com seu usuário e senha
           </p>
         </div>
 
