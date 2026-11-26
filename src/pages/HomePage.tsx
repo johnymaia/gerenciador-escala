@@ -87,11 +87,11 @@ export function HomePage({ user, settings, onNavigate }: HomePageProps) {
         ) : (
           <div className="mt-2">
             <h2 className="text-2xl font-bold tracking-tight">
-              {user.in_rotation ? 'Sem folga avulsa nesta semana' : 'Fora do rodízio semanal'}
+              {user.in_rotation ? 'Sua folga coincidiu com feriado' : 'Fora do rodízio semanal'}
             </h2>
             <p className="mt-1 text-sm text-teal-100">
               {user.in_rotation
-                ? 'Semana com feriado — sua folga foi empurrada para o próximo ciclo.'
+                ? 'Nesta semana o seu dia de folga da fila caiu em um feriado (loja fechada). Na próxima semana você avança normalmente para o dia seguinte!'
                 : 'Acompanhe a escala completa na aba Escala.'}
             </p>
           </div>

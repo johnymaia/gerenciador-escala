@@ -142,7 +142,8 @@ export function HolidaysPage() {
 
       <p className="text-xs text-slate-500">
         Feriados nacionais e municipais de <strong>Belo Horizonte (MG)</strong> já vêm cadastrados.
-        Quando a loja fecha no feriado, o rodízio pula automaticamente aquele dia e empurra a fila.
+        Quando a loja fecha no feriado, todos folgam nesse dia e o rodízio dos demais dias da semana
+        segue normalmente sem empurrar a fila.
       </p>
 
       {error && (
@@ -258,7 +259,7 @@ export function HolidaysPage() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title="Cadastrar feriado manual"
-        subtitle="O dia ficará marcado como loja fechada e o rodízio pulará essa data"
+        subtitle="O dia ficará marcado como loja fechada no calendário da escala"
       >
         <form onSubmit={handleAddCustom} className="space-y-4">
           <div>

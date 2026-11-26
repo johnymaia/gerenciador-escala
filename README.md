@@ -12,10 +12,10 @@ Sistema web leve, **mobile-first (PWA)** e **100% gratuito** rodando na **Cloudf
 - **Perfis de acesso:**
   - **Funcionária:** visualiza sua folga em destaque na tela inicial, consulta a escala semanal e mensal de toda a equipe, visualiza detalhes de trocas no calendário e solicita/responde trocas de folga.
   - **Administrador:** gerencia colaboradores e perfis, define a **data de início do cálculo da escala** (com aviso de impacto), reordena o rodízio, reseta senhas para `123456` (sem visualizar nem definir senhas pessoais), aprova/recusa/desfaz trocas e gerencia feriados.
-- **Rodízio automático 6×6 (Seg–Sáb, 10h às 19h):**
+- **Rodízio automático 6×6 (Seg–Sáb):**
   - O cálculo começa estritamente a partir da **data de início** configurada.
-  - Toda semana normal cada funcionária avança 1 dia (`Seg → Ter → Qua → Qui → Sex → Sáb`).
-  - **Regra de Feriados (Opção B):** quando cai feriado em dia útil, a loja fecha e a fila **pula o feriado**, empurrando a folga para o próximo dia aberto sem prejudicar ninguém.
+  - Toda semana cada funcionária avança 1 dia (`Seg → Ter → Qua → Qui → Sex → Sáb`).
+  - **Regra de Feriados (Ciclo Fixo):** quando cai feriado em dia útil, a loja fecha para todos e o rodízio dos demais dias da semana segue normalmente sem empurrar a fila (mantendo os dias de folga das colegas e preservando o ciclo semanal).
 - **Calendário de feriados Brasil + Belo Horizonte (MG):**
   - Feriados nacionais e municipais de BH (`Corpus Christi`, `15/08 Assunção de N. Sra.`, `08/12 Imaculada Conceição`) calculados automaticamente para qualquer ano.
   - Cadastro manual de feriados (ex.: Carnaval) e opção de abrir a loja em um feriado específico.

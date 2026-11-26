@@ -718,7 +718,7 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
             </span>
             <span className="inline-flex items-center gap-1.5">
               <span className="h-2.5 w-2.5 rounded-full bg-amber-300" />
-              Feriado (pula fila)
+              Feriado (loja fechada)
             </span>
           </div>
         </div>
@@ -1026,7 +1026,7 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                   >
                     {selectedDay.holiday
                       ? 'Abrir loja neste dia (desmarcar feriado)'
-                      : 'Marcar como Feriado (pula a fila)'}
+                      : 'Marcar como Feriado (loja fechada)'}
                   </button>
                 </div>
 

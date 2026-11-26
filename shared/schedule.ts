@@ -58,17 +58,19 @@ function diffDays(fromYmd: string, toYmd: string): number {
 }
 
 /**
- * Motor do Rodízio — Opção B (Empurra a fila no feriado):
+ * Motor do Rodízio — Ciclo Fixo Semanal (Não pula a fila no feriado):
  * - O cálculo começa ESTRITAMENTE em `settings.rotation_start_date` como 1º dia.
  * - Dias anteriores a `rotation_start_date` ficam marcados como `before_start` (0h, sem folga).
  * - A partir de `rotation_start_date`:
- *   - Em semanas completas sem feriado (6 dias abertos Seg-Sáb), na virada do domingo
- *     a fila recua 1 posição para que toda a equipe avance +1 dia da semana
+ *   - Os 6 dias da semana (Seg–Sáb) avançam normalmente o ponteiro da fila (1 posição por dia),
+ *     independentemente de haver feriado na semana.
+ *   - Quando um dia (Seg–Sáb) é feriado fechado, a loja fecha para todos (`status: 'holiday'`)
+ *     e a posição daquele dia avança normalmente (a folga da pessoa escalada naquele dia coincide
+ *     com o feriado, sem empurrar nem prejudicar as folgas dos outros dias da semana e sem tirar
+ *     o Sábado de ninguém).
+ *   - Ao fechar uma semana completa de 6 dias (Seg–Sáb) na virada do domingo, a fila recua 1 posição
+ *     para que toda a equipe avance religiosamente +1 dia da semana na semana seguinte
  *     (Seg -> Ter -> Qua -> Qui -> Sex -> Sáb -> Seg).
- *   - Quando cai um feriado (Seg-Sáb), o dia é pulado (loja fechada, 0h) e a folga é
- *     empurrada para o próximo dia aberto, sem prejudicar ninguém.
- *   - Na virada de domingo após semana parcial ou com feriado, a fila continua de onde
- *     parou (quem sobrou no sábado já folga na segunda seguinte).
  */
 export function computeScheduleRange(params: {
   from: string;
@@ -114,24 +116,24 @@ export function computeScheduleRange(params: {
   if (N > 0 && endLimit >= startDate) {
     let pointer = 0;
     let cur = startDate;
-    let openDaysInWeek = 0;
-    let holidaysInWeek = 0;
+    let weekdaysInWeek = 0;
 
     while (cur <= endLimit) {
       const dow = getWeekday(cur);
       if (dow === 0) {
-        // Domingo: fecha a semana e ajusta o ponteiro para a próxima segunda
-        if (openDaysInWeek === 6 && holidaysInWeek === 0 && N > 1) {
+        // Domingo: fecha a semana e recua 1 posição quando a semana teve os 6 dias (Seg-Sáb),
+        // garantindo que todos avancem +1 dia da semana na segunda-feira seguinte
+        if (weekdaysInWeek === 6 && N > 1) {
           pointer = (pointer - 1 + N) % N;
         }
-        openDaysInWeek = 0;
-        holidaysInWeek = 0;
-      } else if (closedHolidays.has(cur)) {
-        holidaysInWeek++;
-        baseOffByDate.set(cur, null);
+        weekdaysInWeek = 0;
       } else {
-        openDaysInWeek++;
-        baseOffByDate.set(cur, rotationEmployees[pointer].id);
+        weekdaysInWeek++;
+        if (closedHolidays.has(cur)) {
+          baseOffByDate.set(cur, null);
+        } else {
+          baseOffByDate.set(cur, rotationEmployees[pointer].id);
+        }
         pointer = (pointer + 1) % N;
       }
       cur = addDaysYmd(cur, 1);
