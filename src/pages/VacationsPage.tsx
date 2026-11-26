@@ -16,7 +16,7 @@ import { getTodayBrazilYmd, getWeekday } from '../../shared/schedule';
 import type { PublicEmployee, VacationRequestItem } from '../../shared/types';
 import { Modal } from '../components/Modal';
 import { api, ApiError } from '../lib/api';
-import { formatFullDateBr, weekdayShort } from '../lib/format';
+import { formatFullDateBr, getInitials, weekdayShort } from '../lib/format';
 
 interface VacationsPageProps {
   user: PublicEmployee;
@@ -90,6 +90,92 @@ export function VacationsPage({ user, onPendingCountChange }: VacationsPageProps
     () => requests.filter((r) => r.status === 'approved').length,
     [requests],
   );
+
+  // Resumo anual de dias corridos por colaborador (padrão no ano atual, com opção de escolher anos passados)
+  const currentYear = useMemo(() => getTodayBrazilYmd().slice(0, 4), []);
+  const [selectedHistoryYear, setSelectedHistoryYear] = useState<string>(() =>
+    getTodayBrazilYmd().slice(0, 4),
+  );
+
+  // Lista de anos disponíveis: ano atual + anos passados (últimos 4 anos + qualquer ano passado com registro)
+  const availableHistoryYears = useMemo(() => {
+    const curY = Number(currentYear);
+    const yearsSet = new Set<string>();
+    for (let y = curY; y >= curY - 4; y--) {
+      yearsSet.add(String(y));
+    }
+    for (const req of requests) {
+      const sy = req.start_date.slice(0, 4);
+      const ey = req.end_date.slice(0, 4);
+      if (sy <= currentYear) yearsSet.add(sy);
+      if (ey <= currentYear) yearsSet.add(ey);
+    }
+    return Array.from(yearsSet).sort((a, b) => b.localeCompare(a));
+  }, [currentYear, requests]);
+
+  const annualEmployeeSummary = useMemo(() => {
+    if (!isAdmin) return [];
+    const today = getTodayBrazilYmd();
+    const yearStart = `${selectedHistoryYear}-01-01`;
+    const yearEnd = `${selectedHistoryYear}-12-31`;
+
+    // Considera todos os colaboradores do rodízio + qualquer outro colaborador que tenha férias no ano selecionado
+    const targetEmps = employees.filter(
+      (emp) =>
+        emp.in_rotation ||
+        requests.some(
+          (r) =>
+            r.employee_id === emp.id &&
+            (r.status === 'approved' || r.status === 'pending') &&
+            r.start_date <= yearEnd &&
+            r.end_date >= yearStart,
+        ),
+    );
+
+    return targetEmps.map((emp) => {
+      let concludedDays = 0;
+      let scheduledDays = 0;
+      let pendingDays = 0;
+      let periodsCount = 0;
+
+      for (const req of requests) {
+        if (req.employee_id !== emp.id) continue;
+        if (req.status !== 'approved' && req.status !== 'pending') continue;
+
+        // Recorta o período estritamente dentro do ano selecionado (01/01 a 31/12)
+        const clippedStart = req.start_date < yearStart ? yearStart : req.start_date;
+        const clippedEnd = req.end_date > yearEnd ? yearEnd : req.end_date;
+        if (clippedStart > clippedEnd) continue;
+
+        const totalInYear = countInclusiveDays(clippedStart, clippedEnd);
+
+        if (req.status === 'pending') {
+          pendingDays += totalInYear;
+        } else if (req.status === 'approved') {
+          periodsCount++;
+          if (clippedEnd <= today) {
+            concludedDays += totalInYear;
+          } else if (clippedStart > today) {
+            scheduledDays += totalInYear;
+          } else {
+            // Férias em andamento hoje: dias até hoje entram como concluídos e de amanhã em diante como agendados
+            const donePart = countInclusiveDays(clippedStart, today);
+            concludedDays += donePart;
+            scheduledDays += totalInYear - donePart;
+          }
+        }
+      }
+
+      return {
+        employee: emp,
+        concludedDays,
+        scheduledDays,
+        pendingDays,
+        totalApprovedDays: concludedDays + scheduledDays,
+        periodsCount,
+      };
+    });
+  }, [isAdmin, selectedHistoryYear, employees, requests]);
 
   // Se for admin e não houver pendentes, mas houver aprovadas, mantém fácil visualização
   const visibleRequests = useMemo(() => {
@@ -340,6 +426,129 @@ export function VacationsPage({ user, onPendingCountChange }: VacationsPageProps
             />
           ))}
         </div>
+      )}
+
+      {/* Histórico de Férias por colaborador (Visão exclusiva do Administrador, abaixo das solicitações) */}
+      {isAdmin && !loading && annualEmployeeSummary.length > 0 && (
+        <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-900">
+                  Histórico de Férias
+                </h3>
+                <select
+                  aria-label="Selecionar ano do histórico de férias"
+                  value={selectedHistoryYear}
+                  onChange={(e) => setSelectedHistoryYear(e.target.value)}
+                  className="cursor-pointer rounded-full border border-teal-200 bg-teal-50 px-2.5 py-0.5 text-[11px] font-bold text-teal-800 outline-none transition hover:border-teal-300 hover:bg-teal-100/70"
+                >
+                  {availableHistoryYears.map((yr) => (
+                    <option key={yr} value={yr}>
+                      {yr === currentYear ? `Ano Atual (${yr})` : `Ano ${yr}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Soma automática de dias concluídos e agendados dentro de {selectedHistoryYear}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5 text-[11px]">
+              <span className="inline-flex items-center gap-1 font-semibold text-emerald-800">
+                <span className="h-2 w-2 rounded-full bg-emerald-600" />
+                Concluídos
+              </span>
+              <span className="inline-flex items-center gap-1 font-semibold text-violet-800">
+                <span className="h-2 w-2 rounded-full bg-violet-600" />
+                Agendados
+              </span>
+              <span className="inline-flex items-center gap-1 font-semibold text-orange-800">
+                <span className="h-2 w-2 rounded-full bg-orange-400" />
+                Pendentes
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200/80 bg-white">
+            {annualEmployeeSummary.map((item) => (
+              <div
+                key={item.employee.id}
+                className="flex items-center justify-between gap-3 px-3 py-2.5"
+              >
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white"
+                    style={{ backgroundColor: item.employee.color }}
+                  >
+                    {getInitials(item.employee.name)}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="truncate text-xs font-bold text-slate-900">
+                        {item.employee.name}
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        •{' '}
+                        {item.periodsCount === 0
+                          ? `Nenhum período em ${selectedHistoryYear}`
+                          : `${item.periodsCount} ${
+                              item.periodsCount === 1 ? 'período' : 'períodos'
+                            } em ${selectedHistoryYear}`}
+                      </span>
+                    </div>
+
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      <span
+                        className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
+                          item.concludedDays > 0
+                            ? 'border border-emerald-200 bg-emerald-50 text-emerald-800'
+                            : 'bg-slate-100 text-slate-500'
+                        }`}
+                      >
+                        ✓ {item.concludedDays}d concluídos
+                      </span>
+                      <span
+                        className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
+                          item.scheduledDays > 0
+                            ? 'border border-violet-200 bg-violet-50 text-violet-800'
+                            : 'bg-slate-100 text-slate-500'
+                        }`}
+                      >
+                        📅 {item.scheduledDays}d agendados
+                      </span>
+                      {item.pendingDays > 0 && (
+                        <span className="rounded-md border border-dashed border-orange-300 bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold text-orange-800">
+                          ⏳ +{item.pendingDays}d pendentes
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="shrink-0 text-right">
+                  <div
+                    className={`text-sm font-extrabold tabular-nums ${
+                      item.totalApprovedDays > 0 ? 'text-slate-900' : 'text-slate-400'
+                    }`}
+                  >
+                    {item.totalApprovedDays}{' '}
+                    {item.totalApprovedDays === 1 ? 'dia' : 'dias'}
+                    {item.pendingDays > 0 && (
+                      <span className="ml-1 text-xs font-bold text-orange-600">
+                        (+{item.pendingDays}d)
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] font-medium text-slate-400">
+                    total corrido em {selectedHistoryYear}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* Modal: Solicitar / Agendar Férias */}
