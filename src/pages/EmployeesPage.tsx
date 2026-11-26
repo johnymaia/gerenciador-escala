@@ -283,40 +283,6 @@ export function EmployeesPage({
         </div>
       )}
 
-      {/* Card em destaque: Data de início do cálculo da escala */}
-      <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
-              <CalendarClock className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">
-                Data de início do cálculo da escala
-              </h3>
-              <p className="mt-0.5 text-xs text-slate-500">
-                O rodízio começa a contar somente a partir de{' '}
-                <strong className="font-semibold text-slate-900 tabular-nums">
-                  {formatFullDateBr(settings.rotation_start_date)}
-                </strong>{' '}
-                (1º dia da fila).
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              setNewStartDate(settings.rotation_start_date);
-              setStartDateOpen(true);
-            }}
-            className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs font-semibold text-amber-900 transition hover:bg-amber-100"
-          >
-            Alterar data
-          </button>
-        </div>
-      </section>
-
       {loading ? (
         <div className="flex h-40 items-center justify-center rounded-2xl border border-slate-200/80 bg-white">
           <Loader2 className="h-6 w-6 animate-spin text-teal-700" />
@@ -743,6 +709,41 @@ export function EmployeesPage({
               onChange={(e) => setShopName(e.target.value)}
               className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm"
             />
+          </div>
+
+          {/* Data de início do cálculo da escala (dentro de Configurar loja) */}
+          <div className="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
+                  <CalendarClock className="h-4 w-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900">
+                    Data de início do cálculo da escala
+                  </h4>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    O rodízio começa a contar somente a partir de{' '}
+                    <strong className="font-semibold text-slate-900 tabular-nums">
+                      {formatFullDateBr(settings.rotation_start_date)}
+                    </strong>{' '}
+                    (1º dia da fila).
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setNewStartDate(settings.rotation_start_date);
+                  setConfigOpen(false);
+                  setStartDateOpen(true);
+                }}
+                className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:bg-amber-100"
+              >
+                Alterar data
+              </button>
+            </div>
           </div>
 
           {/* Regra: Pular colega da Sexta para o Sábado em férias */}
