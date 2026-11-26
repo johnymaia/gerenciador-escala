@@ -97,18 +97,20 @@ export function VacationsPage({ user, onPendingCountChange }: VacationsPageProps
     getTodayBrazilYmd().slice(0, 4),
   );
 
-  // Lista de anos disponíveis: ano atual + anos passados (últimos 4 anos + qualquer ano passado com registro)
+  // Lista de anos disponíveis: 1 ano no futuro (ex.: 2027) + ano atual (padrão) + anos passados
   const availableHistoryYears = useMemo(() => {
     const curY = Number(currentYear);
+    const maxFutureY = String(curY + 1);
     const yearsSet = new Set<string>();
+    yearsSet.add(maxFutureY);
     for (let y = curY; y >= curY - 4; y--) {
       yearsSet.add(String(y));
     }
     for (const req of requests) {
       const sy = req.start_date.slice(0, 4);
       const ey = req.end_date.slice(0, 4);
-      if (sy <= currentYear) yearsSet.add(sy);
-      if (ey <= currentYear) yearsSet.add(ey);
+      if (sy <= maxFutureY) yearsSet.add(sy);
+      if (ey <= maxFutureY) yearsSet.add(ey);
     }
     return Array.from(yearsSet).sort((a, b) => b.localeCompare(a));
   }, [currentYear, requests]);
