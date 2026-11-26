@@ -21,6 +21,7 @@ export interface ShopSettings {
   lunch_hours: number;
   daily_hours: number;
   rotation_start_date: string; // YYYY-MM-DD (primeiro dia do cálculo do rodízio)
+  saturday_vacation_cascade: boolean;
 }
 
 export interface HolidayOverrideRecord {
@@ -53,7 +54,7 @@ export interface HourAdjustmentRecord {
   reason: string;
 }
 
-export type DayEmployeeStatus = 'work' | 'off' | 'holiday' | 'sunday' | 'before_start';
+export type DayEmployeeStatus = 'work' | 'off' | 'vacation' | 'holiday' | 'sunday' | 'before_start';
 
 export interface ScheduleDayEmployee {
   employee_id: number;

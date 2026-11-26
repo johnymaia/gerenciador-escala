@@ -1,3 +1,4 @@
+import { getMondayOfWeek, getSundayOfWeek } from '../../../../shared/schedule';
 import type { VacationStatus } from '../../../../shared/types';
 import { getSessionUser, passwordChangeRequiredResponse } from '../../../_lib/auth';
 import { ensureSeeded } from '../../../_lib/db';
@@ -46,6 +47,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
   // Cancelamento:
   // - Funcionário dono pode cancelar se ainda estiver pendente
   // - Administrador pode cancelar férias pendentes ou já aprovadas
+  // - Quando férias aprovadas são canceladas, qualquer solicitação/troca de Folga Livre (is_open_swap = 1)
+  //   gerada nas semanas daquelas férias também é cancelada automaticamente e seus overrides são removidos!
   if (body.decision === 'cancelled') {
     if (vacation.status !== 'pending' && vacation.status !== 'approved') {
       return errorJson('Este agendamento de férias já está encerrado.', 400);
@@ -58,17 +61,65 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     }
 
     const nowIso = new Date().toISOString();
-    await env.DB.prepare(
-      `UPDATE vacation_requests
-       SET status = 'cancelled',
-           admin_decided_by = COALESCE(?, admin_decided_by),
-           admin_decided_at = COALESCE(?, admin_decided_at)
-       WHERE id = ?`,
-    )
-      .bind(isAdmin ? user.id : null, isAdmin ? nowIso : null, id)
-      .run();
+    const statements: D1PreparedStatement[] = [
+      env.DB.prepare(
+        `UPDATE vacation_requests
+         SET status = 'cancelled',
+             admin_decided_by = COALESCE(?, admin_decided_by),
+             admin_decided_at = COALESCE(?, admin_decided_at)
+         WHERE id = ?`,
+      ).bind(isAdmin ? user.id : null, isAdmin ? nowIso : null, id),
+    ];
 
-    return json({ ok: true, status: 'cancelled' });
+    let cancelledSwapsCount = 0;
+
+    if (vacation.status === 'approved') {
+      // Janela das semanas cobertas pelas férias (da segunda-feira da primeira semana até o domingo da última)
+      const affectedWeekStart = getMondayOfWeek(vacation.start_date);
+      const affectedWeekEnd = getSundayOfWeek(vacation.end_date);
+
+      const affectedOpenSwaps = await env.DB.prepare(
+        `SELECT id, requester_id, requester_date, target_date, status
+         FROM swap_requests
+         WHERE is_open_swap = 1
+           AND status IN ('pending', 'approved')
+           AND target_date >= ?
+           AND target_date <= ?`,
+      )
+        .bind(affectedWeekStart, affectedWeekEnd)
+        .all<{
+          id: number;
+          requester_id: number;
+          requester_date: string;
+          target_date: string;
+          status: string;
+        }>();
+
+      for (const sw of affectedOpenSwaps.results ?? []) {
+        cancelledSwapsCount++;
+        statements.push(
+          env.DB.prepare("UPDATE swap_requests SET status = 'cancelled' WHERE id = ?").bind(sw.id),
+        );
+        if (sw.status === 'approved') {
+          statements.push(
+            env.DB.prepare(
+              'DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?',
+            ).bind(sw.requester_date, sw.requester_id),
+            env.DB.prepare(
+              'DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?',
+            ).bind(sw.target_date, sw.requester_id),
+          );
+        }
+      }
+    }
+
+    await env.DB.batch(statements);
+
+    return json({
+      ok: true,
+      status: 'cancelled',
+      cancelled_open_swaps: cancelledSwapsCount,
+    });
   }
 
   // Aprovar ou Recusar: exclusivo para Administrador

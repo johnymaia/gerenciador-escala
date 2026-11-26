@@ -267,13 +267,21 @@ export function VacationsPage({ user, onPendingCountChange }: VacationsPageProps
     setError('');
     setNotice('');
     try {
-      await api.respondVacationRequest(vacation.id, { decision });
+      const res = await api.respondVacationRequest(vacation.id, { decision });
       if (decision === 'approved') {
         setNotice(`Férias de ${vacation.employee_name} aprovadas com sucesso!`);
       } else if (decision === 'rejected') {
         setNotice(`Solicitação de férias de ${vacation.employee_name} recusada.`);
       } else {
-        setNotice('Agendamento de férias cancelado e liberado no calendário.');
+        const extra =
+          res.cancelled_open_swaps && res.cancelled_open_swaps > 0
+            ? ` (${res.cancelled_open_swaps} ${
+                res.cancelled_open_swaps === 1
+                  ? 'troca de Folga Livre daquele período também foi cancelada'
+                  : 'trocas de Folga Livre daquele período também foram canceladas'
+              } automaticamente).`
+            : '.';
+        setNotice(`Agendamento de férias cancelado e liberado no calendário${extra}`);
       }
       await loadVacations();
     } catch (err) {
@@ -917,8 +925,12 @@ function VacationCard({
             <div className="w-full space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-2.5">
               <p className="text-[11px] font-medium text-amber-950">
                 Cancelar as férias de <strong>{vacation.employee_name}</strong> (
-                {formatFullDateBr(vacation.start_date)} a {formatFullDateBr(vacation.end_date)})? O
-                período ficará livre novamente no calendário.
+                {formatFullDateBr(vacation.start_date)} a {formatFullDateBr(vacation.end_date)})?
+              </p>
+              <p className="text-[11px] text-amber-900">
+                ⚠️ Como as férias serão canceladas, {vacation.employee_name} voltará às suas folgas
+                normais do rodízio e <strong>qualquer solicitação ou troca de Folga Livre</strong>{' '}
+                gerada neste período também será <strong>cancelada automaticamente</strong>.
               </p>
               <div className="flex gap-2">
                 <button

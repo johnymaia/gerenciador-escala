@@ -43,7 +43,8 @@ export async function ensureSeeded(env: Env): Promise<void> {
       close_time TEXT NOT NULL DEFAULT '19:00',
       lunch_hours REAL NOT NULL DEFAULT 1,
       daily_hours REAL NOT NULL DEFAULT 8,
-      rotation_start_date TEXT NOT NULL DEFAULT '2026-11-23'
+      rotation_start_date TEXT NOT NULL DEFAULT '2026-11-23',
+      saturday_vacation_cascade INTEGER NOT NULL DEFAULT 1
     )`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS holiday_overrides (
       date TEXT PRIMARY KEY,
@@ -125,6 +126,17 @@ export async function ensureSeeded(env: Env): Promise<void> {
     ).run();
   }
 
+  // Garante coluna saturday_vacation_cascade em settings já existentes
+  const settingsCols = await env.DB.prepare('PRAGMA table_info(settings)').all<{ name: string }>();
+  const hasSatCascadeCol = (settingsCols.results ?? []).some(
+    (c) => c.name === 'saturday_vacation_cascade',
+  );
+  if (!hasSatCascadeCol) {
+    await env.DB.prepare(
+      'ALTER TABLE settings ADD COLUMN saturday_vacation_cascade INTEGER NOT NULL DEFAULT 1',
+    ).run();
+  }
+
   const existing = await env.DB.prepare('SELECT COUNT(*) as total FROM users').first<{ total: number }>();
   if (existing && existing.total > 0) {
     seededInIsolate = true;
@@ -170,11 +182,32 @@ export async function ensureSeeded(env: Env): Promise<void> {
 
 export async function getSettings(env: Env): Promise<ShopSettings> {
   const row = await env.DB.prepare(
-    `SELECT shop_name, open_time, close_time, lunch_hours, daily_hours, rotation_start_date
+    `SELECT shop_name, open_time, close_time, lunch_hours, daily_hours, rotation_start_date, saturday_vacation_cascade
      FROM settings WHERE id = 1`,
-  ).first<ShopSettings>();
+  ).first<{
+    shop_name: string;
+    open_time: string;
+    close_time: string;
+    lunch_hours: number;
+    daily_hours: number;
+    rotation_start_date: string;
+    saturday_vacation_cascade?: number;
+  }>();
 
-  if (row) return row;
+  if (row) {
+    return {
+      shop_name: row.shop_name,
+      open_time: row.open_time,
+      close_time: row.close_time,
+      lunch_hours: row.lunch_hours,
+      daily_hours: row.daily_hours,
+      rotation_start_date: row.rotation_start_date,
+      saturday_vacation_cascade:
+        row.saturday_vacation_cascade === undefined
+          ? true
+          : Boolean(row.saturday_vacation_cascade),
+    };
+  }
   return {
     shop_name: 'Lotérica Daimond',
     open_time: '10:00',
@@ -182,6 +215,7 @@ export async function getSettings(env: Env): Promise<ShopSettings> {
     lunch_hours: 1,
     daily_hours: 8,
     rotation_start_date: getMondayOfWeek(getTodayBrazilYmd()),
+    saturday_vacation_cascade: true,
   };
 }
 

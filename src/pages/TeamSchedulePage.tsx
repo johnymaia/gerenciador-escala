@@ -1038,15 +1038,21 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                     <div className="space-y-1.5">
                       {selectedDay.employees.map((emp) => {
                         const isOff = emp.status === 'off';
+                        const isOnVacation = emp.status === 'vacation';
                         return (
                           <button
                             key={emp.employee_id}
                             type="button"
-                            disabled={saving}
+                            disabled={saving || isOnVacation}
                             onClick={() =>
+                              !isOnVacation &&
                               handleToggleEmployeeOff(selectedDay, emp.employee_id, emp.status)
                             }
-                            className="flex w-full items-center justify-between rounded-xl border border-slate-200/80 bg-white px-3.5 py-2.5 text-left transition hover:bg-slate-50 disabled:opacity-50"
+                            className={`flex w-full items-center justify-between rounded-xl border px-3.5 py-2.5 text-left transition ${
+                              isOnVacation
+                                ? 'cursor-default border-violet-200 bg-violet-50/40'
+                                : 'border-slate-200/80 bg-white hover:bg-slate-50 disabled:opacity-50'
+                            }`}
                           >
                             <div className="flex items-center gap-2.5">
                               <span
@@ -1054,18 +1060,20 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                                 style={{ backgroundColor: emp.color }}
                               />
                               <span className="text-sm font-medium text-slate-900">{emp.name}</span>
-                              {emp.is_override && (
+                              {emp.is_override && !isOnVacation && (
                                 <span className="text-[10px] text-slate-400">(manual)</span>
                               )}
                             </div>
                             <span
                               className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                                isOff
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-slate-100 text-slate-600'
+                                isOnVacation
+                                  ? 'bg-violet-600 text-white'
+                                  : isOff
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-slate-100 text-slate-600'
                               }`}
                             >
-                              {isOff ? 'Folga' : 'Trabalha'}
+                              {isOnVacation ? '🏖️ Férias' : isOff ? 'Folga' : 'Trabalha'}
                             </span>
                           </button>
                         );

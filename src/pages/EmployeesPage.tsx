@@ -71,10 +71,10 @@ export function EmployeesPage({
   // Modal de configurações gerais da loja
   const [configOpen, setConfigOpen] = useState(false);
   const [shopName, setShopName] = useState(settings.shop_name);
-  const [openTime, setOpenTime] = useState(settings.open_time);
-  const [closeTime, setCloseTime] = useState(settings.close_time);
-  const [lunchHours, setLunchHours] = useState(String(settings.lunch_hours));
-  const [dailyHours, setDailyHours] = useState(String(settings.daily_hours));
+  const [saturdayCascade, setSaturdayCascade] = useState(
+    settings.saturday_vacation_cascade !== false,
+  );
+  const [pendingSaturdayCascade, setPendingSaturdayCascade] = useState<boolean | null>(null);
 
   const loadEmployees = useCallback(async () => {
     setLoading(true);
@@ -231,10 +231,7 @@ export function EmployeesPage({
     try {
       const res = await api.updateConfig({
         shop_name: shopName,
-        open_time: openTime,
-        close_time: closeTime,
-        lunch_hours: Number(lunchHours),
-        daily_hours: Number(dailyHours),
+        saturday_vacation_cascade: saturdayCascade,
       });
       onSettingsUpdated(res.settings);
       setConfigOpen(false);
@@ -253,10 +250,8 @@ export function EmployeesPage({
           type="button"
           onClick={() => {
             setShopName(settings.shop_name);
-            setOpenTime(settings.open_time);
-            setCloseTime(settings.close_time);
-            setLunchHours(String(settings.lunch_hours));
-            setDailyHours(String(settings.daily_hours));
+            setSaturdayCascade(settings.saturday_vacation_cascade !== false);
+            setPendingSaturdayCascade(null);
             setConfigOpen(true);
           }}
           className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50"
@@ -736,7 +731,7 @@ export function EmployeesPage({
         open={configOpen}
         onClose={() => setConfigOpen(false)}
         title="Configurações da loja"
-        subtitle="Nome da loja, horário de funcionamento e jornada diária"
+        subtitle="Nome da loja e regras automáticas da escala"
       >
         <form onSubmit={handleSaveConfig} className="space-y-4">
           <div>
@@ -750,54 +745,109 @@ export function EmployeesPage({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500">Abertura</label>
-              <input
-                type="time"
-                value={openTime}
-                onChange={(e) => setOpenTime(e.target.value)}
-                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500">Fechamento</label>
-              <input
-                type="time"
-                value={closeTime}
-                onChange={(e) => setCloseTime(e.target.value)}
-                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm"
-              />
-            </div>
-          </div>
+          {/* Regra: Pular colega da Sexta para o Sábado em férias */}
+          <div className="space-y-2.5">
+            <div
+              onClick={() => setPendingSaturdayCascade(!saturdayCascade)}
+              className={`flex cursor-pointer items-center justify-between gap-3 rounded-2xl border p-3.5 transition ${
+                saturdayCascade
+                  ? 'border-teal-200 bg-teal-50/50 hover:border-teal-300'
+                  : 'border-slate-200 bg-slate-50 hover:border-slate-300'
+              }`}
+            >
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-900">
+                    Pular colega da Sexta para o Sábado em férias
+                  </span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      saturdayCascade
+                        ? 'bg-teal-700 text-white'
+                        : 'bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {saturdayCascade ? 'Ativado' : 'Desativado'}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
+                  Quando quem folga no Sábado estiver em férias aprovadas, a colega da Sexta (ou
+                  Quinta, se Sexta fechar) pula automaticamente para o Sábado e deixa o dia anterior
+                  como Folga Livre.
+                </p>
+              </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500">
-                Almoço (horas)
-              </label>
-              <input
-                type="number"
-                step="0.5"
-                min="0"
-                value={lunchHours}
-                onChange={(e) => setLunchHours(e.target.value)}
-                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm"
-              />
+              <button
+                type="button"
+                role="switch"
+                aria-checked={saturdayCascade}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 ${
+                  saturdayCascade ? 'bg-teal-700' : 'bg-slate-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${
+                    saturdayCascade ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500">
-                Horas/dia trabalhadas
-              </label>
-              <input
-                type="number"
-                step="0.5"
-                min="1"
-                value={dailyHours}
-                onChange={(e) => setDailyHours(e.target.value)}
-                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm"
-              />
-            </div>
+
+            {pendingSaturdayCascade !== null && (
+              <div className="rounded-2xl border border-amber-300 bg-amber-50 p-3.5 text-xs text-amber-950">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                  <div className="space-y-1.5 leading-relaxed">
+                    <p className="font-bold text-amber-950">
+                      {pendingSaturdayCascade
+                        ? 'Atenção: Ativar o pulo automático para o Sábado em férias?'
+                        : 'Atenção: Desativar o pulo automático para o Sábado em férias?'}
+                    </p>
+                    {pendingSaturdayCascade ? (
+                      <ul className="list-disc space-y-1 pl-4 text-amber-900">
+                        <li>
+                          Quando a folga de <strong>Sábado</strong> cair em férias aprovadas, a
+                          colega da <strong>Sexta</strong> (ou Quinta, se Sexta fechar) pulará
+                          automaticamente para o Sábado e o dia anterior ficará como{' '}
+                          <strong>✨ Folga Livre</strong>.
+                        </li>
+                      </ul>
+                    ) : (
+                      <ul className="list-disc space-y-1 pl-4 text-amber-900">
+                        <li>
+                          A colega da Sexta (ou Quinta){' '}
+                          <strong>não pulará mais automaticamente para o Sábado</strong>.
+                        </li>
+                        <li>
+                          O próprio <strong>Sábado</strong> em férias ficará marcado como{' '}
+                          <strong>✨ Folga Livre</strong> para solicitação com aprovação do
+                          Administrador.
+                        </li>
+                      </ul>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPendingSaturdayCascade(null)}
+                    className="flex-1 rounded-xl border border-slate-200 bg-white py-1.5 text-xs font-semibold text-slate-600"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSaturdayCascade(pendingSaturdayCascade);
+                      setPendingSaturdayCascade(null);
+                    }}
+                    className="flex-1 rounded-xl bg-amber-600 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                  >
+                    {pendingSaturdayCascade ? 'Confirmar ativação' : 'Confirmar desativação'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <button

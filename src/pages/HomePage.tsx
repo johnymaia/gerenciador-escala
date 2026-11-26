@@ -128,15 +128,14 @@ export function HomePage({ user, settings, onNavigate }: HomePageProps) {
       <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-900">Sua semana</h3>
-          <span className="text-xs text-slate-400">
-            {settings.open_time} – {settings.close_time}
-          </span>
         </div>
 
         <div className="grid grid-cols-7 gap-1.5">
           {thisWeekDays.map((day) => {
             const isToday = day.date === today;
             const isMyOff = day.off_employee_ids.includes(user.id);
+            const myEntry = day.employees.find((e) => e.employee_id === user.id);
+            const isMyVacation = myEntry?.status === 'vacation';
             const isHoliday = Boolean(day.holiday);
             const isSun = day.is_sunday;
 
@@ -145,6 +144,9 @@ export function HomePage({ user, settings, onNavigate }: HomePageProps) {
             if (day.is_before_start) {
               pillClass = 'border-slate-100 bg-slate-50 text-slate-300';
               label = '—';
+            } else if (isMyVacation) {
+              pillClass = 'border-violet-300 bg-violet-50 text-violet-900';
+              label = 'Férias';
             } else if (isMyOff) {
               pillClass = 'border-emerald-300 bg-emerald-50 text-emerald-800';
               label = 'Folga';

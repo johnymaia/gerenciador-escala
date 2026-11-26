@@ -138,11 +138,16 @@ export function computeScheduleRange(params: {
     }
   }
 
-  // Regra de Cascata de Sábado em Férias Aprovadas (Opção A):
-  // - Quando a pessoa que folga no Sábado está em férias aprovadas:
-  //   1. Se a Sexta for dia aberto normal, somente a pessoa da Sexta pula para o Sábado e a Sexta fica como Folga Livre (ninguém mexe na Quinta).
-  //   2. Se a Sexta for feriado / loja fechada, a pessoa da Quinta pula direto para o Sábado e a Quinta fica como Folga Livre.
-  // - Aplicada sobre uma cópia pós-ponteiro para NÃO alterar o rodízio das semanas seguintes!
+  // Regra de Férias Aprovadas + Folga Semanal:
+  // 1. Se `settings.saturday_vacation_cascade` estiver ATIVADO (padrão):
+  //    - Quando a pessoa que folga no Sábado está em férias aprovadas, a colega da Sexta
+  //      (ou da Quinta, se a Sexta for feriado fechado) pula automaticamente para o Sábado,
+  //      e a Sexta (ou Quinta) fica como Folga Livre.
+  // 2. Para qualquer dia útil aberto (Seg a Sáb — incluindo o Sábado quando a cascata estiver desativada):
+  //    - Se a pessoa que folgaria naquele dia está em Férias Aprovadas, a sinalização de folga dela
+  //      some (`effectiveOffByDate.set(cur, null)`) e o dia vira Folga Livre (`openOffDates.add(cur)`),
+  //      disponível para qualquer colega solicitar com aprovação única do Administrador!
+  // - Tudo é aplicado sobre uma cópia pós-ponteiro para NÃO alterar o rodízio das semanas seguintes!
   const effectiveOffByDate = new Map<string, number | null>(baseOffByDate);
   const openOffDates = new Set<string>();
   const cascadeInfoByDate = new Map<string, string>();
@@ -152,57 +157,81 @@ export function computeScheduleRange(params: {
       (v) => v.employee_id === empId && v.start_date <= ymd && v.end_date >= ymd,
     );
 
+  const saturdayCascadeEnabled = settings.saturday_vacation_cascade !== false;
+
   if (N > 0 && approvedVacations.length > 0 && endLimit >= startDate) {
-    let cur = startDate;
-    while (cur <= endLimit) {
-      if (getWeekday(cur) === 6) {
-        // É um sábado >= startDate
-        const satEmpId = baseOffByDate.get(cur) ?? null;
-        if (satEmpId !== null && isOnApprovedVacation(satEmpId, cur)) {
-          const satName = empNameById.get(satEmpId) || 'Colega';
-          const friDate = addDaysYmd(cur, -1); // Sexta
-          const thuDate = addDaysYmd(cur, -2); // Quinta
+    // Passo 1: Pulo automático de Sexta (ou Quinta) para o Sábado, se habilitado nas configurações
+    if (saturdayCascadeEnabled) {
+      let cur = startDate;
+      while (cur <= endLimit) {
+        if (getWeekday(cur) === 6) {
+          // É um sábado >= startDate
+          const satEmpId = baseOffByDate.get(cur) ?? null;
+          if (satEmpId !== null && isOnApprovedVacation(satEmpId, cur)) {
+            const satName = empNameById.get(satEmpId) || 'Colega';
+            const friDate = addDaysYmd(cur, -1); // Sexta
+            const thuDate = addDaysYmd(cur, -2); // Quinta
 
-          const friOpen = friDate >= startDate && !closedHolidays.has(friDate);
-          const thuOpen = thuDate >= startDate && !closedHolidays.has(thuDate);
+            const friOpen = friDate >= startDate && !closedHolidays.has(friDate);
+            const thuOpen = thuDate >= startDate && !closedHolidays.has(thuDate);
 
-          const friEmpId = friOpen ? (baseOffByDate.get(friDate) ?? null) : null;
-          const thuEmpId = thuOpen ? (baseOffByDate.get(thuDate) ?? null) : null;
+            const friEmpId = friOpen ? (baseOffByDate.get(friDate) ?? null) : null;
+            const thuEmpId = thuOpen ? (baseOffByDate.get(thuDate) ?? null) : null;
 
-          if (friOpen && friEmpId !== null && !isOnApprovedVacation(friEmpId, cur)) {
-            const friName = empNameById.get(friEmpId) || 'Colega';
-            // Somente a pessoa da Sexta pula para a folga do Sábado, e a Sexta fica Livre (Quinta permanece inalterada!)
-            effectiveOffByDate.set(cur, friEmpId);
-            effectiveOffByDate.set(friDate, null);
-            openOffDates.add(friDate);
+            if (friOpen && friEmpId !== null && !isOnApprovedVacation(friEmpId, cur)) {
+              const friName = empNameById.get(friEmpId) || 'Colega';
+              // Somente a pessoa da Sexta pula para a folga do Sábado, e a Sexta fica Livre
+              effectiveOffByDate.set(cur, friEmpId);
+              effectiveOffByDate.set(friDate, null);
+              openOffDates.add(friDate);
 
-            cascadeInfoByDate.set(
-              cur,
-              `Remanejamento automático: como ${satName} está de férias no sábado, ${friName} pulou da sexta para o sábado.`,
-            );
-            cascadeInfoByDate.set(
-              friDate,
-              `Folga Livre: ${friName} pulou para o sábado (férias de ${satName} no sábado). Qualquer colega pode solicitar esta sexta-feira com aprovação do administrador!`,
-            );
-          } else if (!friOpen && thuOpen && thuEmpId !== null && !isOnApprovedVacation(thuEmpId, cur)) {
-            // Sexta é feriado / loja fechada: a pessoa da Quinta pula direto para o Sábado e a Quinta fica Livre
-            const thuName = empNameById.get(thuEmpId) || 'Colega';
-            effectiveOffByDate.set(cur, thuEmpId);
-            effectiveOffByDate.set(thuDate, null);
-            openOffDates.add(thuDate);
+              cascadeInfoByDate.set(
+                cur,
+                `Remanejamento automático: como ${satName} está de férias no sábado, ${friName} pulou da sexta para o sábado.`,
+              );
+              cascadeInfoByDate.set(
+                friDate,
+                `Folga Livre: ${friName} pulou para o sábado (férias de ${satName} no sábado). Qualquer colega pode solicitar esta sexta-feira com aprovação do administrador!`,
+              );
+            } else if (!friOpen && thuOpen && thuEmpId !== null && !isOnApprovedVacation(thuEmpId, cur)) {
+              // Sexta é feriado / loja fechada: a pessoa da Quinta pula direto para o Sábado e a Quinta fica Livre
+              const thuName = empNameById.get(thuEmpId) || 'Colega';
+              effectiveOffByDate.set(cur, thuEmpId);
+              effectiveOffByDate.set(thuDate, null);
+              openOffDates.add(thuDate);
 
-            cascadeInfoByDate.set(
-              cur,
-              `Remanejamento automático: como ${satName} está de férias no sábado (e sexta a loja está fechada), ${thuName} pulou da quinta para o sábado.`,
-            );
-            cascadeInfoByDate.set(
-              thuDate,
-              `Folga Livre: ${thuName} pulou para o sábado (férias de ${satName} no sábado e sexta fechada). Qualquer colega pode solicitar esta quinta-feira com aprovação do administrador!`,
-            );
+              cascadeInfoByDate.set(
+                cur,
+                `Remanejamento automático: como ${satName} está de férias no sábado (e sexta a loja está fechada), ${thuName} pulou da quinta para o sábado.`,
+              );
+              cascadeInfoByDate.set(
+                thuDate,
+                `Folga Livre: ${thuName} pulou para o sábado (férias de ${satName} no sábado e sexta fechada). Qualquer colega pode solicitar esta quinta-feira com aprovação do administrador!`,
+              );
+            }
           }
         }
+        cur = addDaysYmd(cur, 1);
       }
-      cur = addDaysYmd(cur, 1);
+    }
+
+    // Passo 2: Para qualquer dia útil aberto onde a funcionária da folga está em Férias Aprovadas,
+    // remove a sinalização de folga duplicada e transforma o dia em Folga Livre!
+    let curDay = startDate;
+    while (curDay <= endLimit) {
+      const curEmpId = effectiveOffByDate.get(curDay) ?? null;
+      if (curEmpId !== null && isOnApprovedVacation(curEmpId, curDay)) {
+        const empName = empNameById.get(curEmpId) || 'Colega';
+        effectiveOffByDate.set(curDay, null);
+        openOffDates.add(curDay);
+        if (!cascadeInfoByDate.has(curDay)) {
+          cascadeInfoByDate.set(
+            curDay,
+            `Folga Livre: ${empName} está em férias aprovadas no seu dia de folga. Qualquer colega pode solicitar esta data com aprovação única do administrador!`,
+          );
+        }
+      }
+      curDay = addDaysYmd(curDay, 1);
     }
   }
 
@@ -253,6 +282,17 @@ export function computeScheduleRange(params: {
           status: 'holiday' as const,
           is_override: false,
           note: holiday.name,
+        };
+      }
+
+      if (isOnApprovedVacation(emp.id, date)) {
+        return {
+          employee_id: emp.id,
+          name: emp.name,
+          color: emp.color,
+          status: 'vacation' as const,
+          is_override: false,
+          note: 'Férias aprovadas',
         };
       }
 

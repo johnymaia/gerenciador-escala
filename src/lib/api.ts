@@ -135,10 +135,13 @@ export const api = {
     id: number,
     payload: { decision: 'approved' | 'rejected' | 'cancelled' },
   ) =>
-    request<{ ok: boolean; status: VacationStatus }>(`/api/vacations/${id}/respond`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+    request<{ ok: boolean; status: VacationStatus; cancelled_open_swaps?: number }>(
+      `/api/vacations/${id}/respond`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    ),
 
   // Admin: Funcionários
   listEmployees: () => request<{ employees: PublicEmployee[] }>('/api/admin/employees'),

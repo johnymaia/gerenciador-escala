@@ -26,6 +26,7 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env }) => {
     lunch_hours?: number;
     daily_hours?: number;
     rotation_start_date?: string;
+    saturday_vacation_cascade?: boolean;
     rotation_orders?: Array<{ id: number; rotation_order: number }>;
   }>(request);
 
@@ -41,13 +42,25 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env }) => {
     body.rotation_start_date && isValidYmd(body.rotation_start_date)
       ? body.rotation_start_date
       : current.rotation_start_date;
+  const saturdayCascade =
+    typeof body.saturday_vacation_cascade === 'boolean'
+      ? body.saturday_vacation_cascade
+      : current.saturday_vacation_cascade;
 
   await env.DB.prepare(
     `UPDATE settings
-     SET shop_name = ?, open_time = ?, close_time = ?, lunch_hours = ?, daily_hours = ?, rotation_start_date = ?
+     SET shop_name = ?, open_time = ?, close_time = ?, lunch_hours = ?, daily_hours = ?, rotation_start_date = ?, saturday_vacation_cascade = ?
      WHERE id = 1`,
   )
-    .bind(shopName, openTime, closeTime, lunchHours, dailyHours, rotationStart)
+    .bind(
+      shopName,
+      openTime,
+      closeTime,
+      lunchHours,
+      dailyHours,
+      rotationStart,
+      saturdayCascade ? 1 : 0,
+    )
     .run();
 
   if (Array.isArray(body.rotation_orders) && body.rotation_orders.length > 0) {
@@ -65,6 +78,7 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env }) => {
       lunch_hours: lunchHours,
       daily_hours: dailyHours,
       rotation_start_date: rotationStart,
+      saturday_vacation_cascade: saturdayCascade,
     },
   });
 };
