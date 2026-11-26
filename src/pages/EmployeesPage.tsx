@@ -238,7 +238,7 @@ export function EmployeesPage({
       });
       onSettingsUpdated(res.settings);
       setConfigOpen(false);
-      setNotice('Configurações da lotérica atualizadas.');
+      setNotice('Configurações da loja atualizadas.');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erro ao salvar configurações.');
     } finally {
@@ -262,7 +262,7 @@ export function EmployeesPage({
           className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50"
         >
           <Settings className="h-4 w-4 text-slate-500" />
-          Configurar lotérica
+          Configurar loja
         </button>
 
         <button
@@ -731,11 +731,11 @@ export function EmployeesPage({
         </form>
       </Modal>
 
-      {/* Modal Configurações Gerais da Lotérica */}
+      {/* Modal Configurações Gerais da Loja */}
       <Modal
         open={configOpen}
         onClose={() => setConfigOpen(false)}
-        title="Configurações da lotérica"
+        title="Configurações da loja"
         subtitle="Nome da loja, horário de funcionamento e jornada diária"
       >
         <form onSubmit={handleSaveConfig} className="space-y-4">

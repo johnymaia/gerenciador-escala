@@ -1,4 +1,4 @@
-import { ArrowLeftRight, CalendarDays, Sparkles, Sun } from 'lucide-react';
+import { ArrowLeftRight, CalendarDays, Palmtree, Sparkles, Sun } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { addDaysYmd } from '../../shared/holidays';
 import { getMondayOfWeek, getTodayBrazilYmd } from '../../shared/schedule';
@@ -14,7 +14,7 @@ import {
 interface HomePageProps {
   user: PublicEmployee;
   settings: ShopSettings;
-  onNavigate: (tab: 'schedule' | 'swaps') => void;
+  onNavigate: (tab: 'schedule' | 'swaps' | 'vacations') => void;
 }
 
 export function HomePage({ user, settings, onNavigate }: HomePageProps) {
@@ -177,11 +177,11 @@ export function HomePage({ user, settings, onNavigate }: HomePageProps) {
       </section>
 
       {/* Atalhos rápidos */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-2.5">
         <button
           type="button"
           onClick={() => onNavigate('swaps')}
-          className="flex flex-col items-start rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-xs transition hover:border-slate-300 active:scale-[0.99]"
+          className="flex flex-col items-start rounded-2xl border border-slate-200/80 bg-white p-3.5 text-left shadow-xs transition hover:border-slate-300 active:scale-[0.99]"
         >
           <div className="flex w-full items-center justify-between">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
@@ -193,26 +193,34 @@ export function HomePage({ user, settings, onNavigate }: HomePageProps) {
               </span>
             )}
           </div>
-          <span className="mt-3 text-xs font-medium text-slate-500">Trocas de folga</span>
-          <span className="mt-0.5 text-base font-semibold text-slate-900">
-            {pendingSwaps > 0 ? 'Aprovar pedido' : 'Pedir troca'}
-          </span>
-          <span className="text-xs text-slate-400">
-            {pendingSwaps > 0 ? `${pendingSwaps} aguardando você` : 'Combinar com colega'}
+          <span className="mt-2.5 text-[11px] font-medium text-slate-500">Trocas</span>
+          <span className="mt-0.5 text-sm font-semibold text-slate-900">
+            {pendingSwaps > 0 ? 'Aprovar' : 'Pedir troca'}
           </span>
         </button>
 
         <button
           type="button"
+          onClick={() => onNavigate('vacations')}
+          className="flex flex-col items-start rounded-2xl border border-slate-200/80 bg-white p-3.5 text-left shadow-xs transition hover:border-slate-300 active:scale-[0.99]"
+        >
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
+            <Palmtree className="h-4 w-4" />
+          </div>
+          <span className="mt-2.5 text-[11px] font-medium text-slate-500">Férias</span>
+          <span className="mt-0.5 text-sm font-semibold text-slate-900">Agendar</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => onNavigate('schedule')}
-          className="flex flex-col items-start rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-xs transition hover:border-slate-300 active:scale-[0.99]"
+          className="flex flex-col items-start rounded-2xl border border-slate-200/80 bg-white p-3.5 text-left shadow-xs transition hover:border-slate-300 active:scale-[0.99]"
         >
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
             <CalendarDays className="h-4 w-4" />
           </div>
-          <span className="mt-3 text-xs font-medium text-slate-500">Escala da equipe</span>
-          <span className="mt-0.5 text-base font-semibold text-slate-900">Ver todas</span>
-          <span className="text-xs text-slate-400">Semana e mês</span>
+          <span className="mt-2.5 text-[11px] font-medium text-slate-500">Escala</span>
+          <span className="mt-0.5 text-sm font-semibold text-slate-900">Ver todas</span>
         </button>
       </div>
 

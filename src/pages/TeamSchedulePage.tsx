@@ -1,12 +1,16 @@
 import {
   ArrowLeftRight,
   Calendar as CalendarIcon,
+  Check,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Edit3,
   Loader2,
+  Palmtree,
   RotateCcw,
   Sparkles,
+  X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { addDaysYmd } from '../../shared/holidays';
@@ -143,6 +147,23 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
       await loadSchedule();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erro ao desfazer troca.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRespondVacationInModal(
+    vacationId: number,
+    decision: 'approved' | 'rejected' | 'cancelled',
+  ) {
+    setSaving(true);
+    setError('');
+    try {
+      await api.respondVacationRequest(vacationId, { decision });
+      setSelectedDay(null);
+      await loadSchedule();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erro ao atualizar férias.');
     } finally {
       setSaving(false);
     }
@@ -325,8 +346,16 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
             const offList = day.employees.filter((e) => e.status === 'off');
             const isMyOff = day.off_employee_ids.includes(user.id);
             const hasSwap = day.swaps.length > 0 || day.has_manual_change;
+            const dayVacations = day.vacations ?? [];
+            const hasVacation = dayVacations.length > 0;
+            const hasApprovedVacation = dayVacations.some((v) => v.status === 'approved');
+            const isOpenOff = Boolean(day.is_open_off);
+            const hasCascade = Boolean(day.cascade_info);
             const canOpenDay =
-              (!day.is_sunday && !day.is_before_start && isAdmin) || hasSwap;
+              (!day.is_sunday && !day.is_before_start && isAdmin) ||
+              hasSwap ||
+              hasVacation ||
+              hasCascade;
 
             return (
               <div
@@ -339,13 +368,17 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                     ? 'border-teal-500 ring-1 ring-teal-500/20'
                     : day.is_before_start
                       ? 'border-slate-100 bg-slate-50/70 opacity-75'
-                      : hasSwap
-                        ? 'border-sky-200 bg-sky-50/25'
-                        : isMyOff
-                          ? 'border-emerald-200 bg-emerald-50/30'
-                          : day.holiday
-                            ? 'border-amber-200 bg-amber-50/40'
-                            : 'border-slate-200/80'
+                      : hasApprovedVacation
+                        ? 'border-violet-200 bg-violet-50/25'
+                        : hasVacation
+                          ? 'border-dashed border-orange-300 bg-orange-50/25'
+                          : hasSwap
+                            ? 'border-sky-200 bg-sky-50/25'
+                            : isMyOff
+                              ? 'border-emerald-200 bg-emerald-50/30'
+                              : day.holiday
+                                ? 'border-amber-200 bg-amber-50/40'
+                                : 'border-slate-200/80'
                 }`}
               >
                 <div className="flex items-center justify-between gap-3">
@@ -359,9 +392,13 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                             ? 'bg-slate-100 text-slate-400'
                             : day.holiday
                               ? 'bg-amber-100 text-amber-800'
-                              : hasSwap
-                                ? 'bg-sky-100 text-sky-800'
-                                : 'bg-slate-100 text-slate-700'
+                              : hasApprovedVacation
+                                ? 'bg-violet-100 text-violet-900'
+                                : hasVacation
+                                  ? 'bg-orange-100 text-orange-900'
+                                  : hasSwap
+                                    ? 'bg-sky-100 text-sky-800'
+                                    : 'bg-slate-100 text-slate-700'
                       }`}
                     >
                       <span className="text-[10px] font-medium uppercase leading-none">
@@ -387,6 +424,30 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                             <ArrowLeftRight className="h-2.5 w-2.5" />
                             Troca
                           </span>
+                        )}
+                        {hasCascade && !isOpenOff && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-800">
+                            ⤴ Remanejada (Férias Sáb)
+                          </span>
+                        )}
+                        {dayVacations.map((vac) =>
+                          vac.status === 'approved' ? (
+                            <span
+                              key={vac.id}
+                              className="inline-flex items-center gap-1 rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-semibold text-white"
+                            >
+                              <Palmtree className="h-2.5 w-2.5" />
+                              Férias • {vac.employee_name}
+                            </span>
+                          ) : (
+                            <span
+                              key={vac.id}
+                              className="inline-flex items-center gap-1 rounded-full border border-dashed border-orange-400 bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-900"
+                            >
+                              <Clock className="h-2.5 w-2.5" />
+                              Férias • {vac.employee_name} (Pendente)
+                            </span>
+                          ),
                         )}
                       </div>
                       <div className="text-xs text-slate-400">
@@ -437,6 +498,11 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                           </span>
                         );
                       })
+                    ) : isOpenOff ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-dashed border-teal-500 bg-teal-50 px-3 py-1 text-xs font-bold text-teal-900">
+                        <Sparkles className="h-3 w-3 text-teal-600" />
+                        Folga Livre (Disponível)
+                      </span>
                     ) : (
                       <span className="text-xs text-slate-400">Ninguém de folga</span>
                     )}
@@ -452,10 +518,21 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                     <span className="inline-flex items-center gap-1.5 font-medium">
                       <ArrowLeftRight className="h-3 w-3 shrink-0" />
                       {day.swaps.length > 0
-                        ? `Troca: ${day.swaps[0].requester_name} ⇄ ${day.swaps[0].target_name}`
+                        ? day.swaps[0].is_open_swap
+                          ? `Folga Livre assumida por ${day.swaps[0].requester_name}`
+                          : `Troca: ${day.swaps[0].requester_name} ⇄ ${day.swaps[0].target_name}`
                         : 'Houve alteração manual nesta data'}
                     </span>
                     <span className="shrink-0 font-semibold underline decoration-sky-300">
+                      Ver detalhes
+                    </span>
+                  </div>
+                )}
+
+                {hasCascade && !hasSwap && (
+                  <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-teal-100 pt-2 text-[11px] text-teal-800">
+                    <span className="truncate font-medium">{day.cascade_info}</span>
+                    <span className="shrink-0 font-semibold underline decoration-teal-300">
                       Ver detalhes
                     </span>
                   </div>
@@ -485,8 +562,16 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
               const isMyOff = day.off_employee_ids.includes(user.id);
               const offList = day.employees.filter((e) => e.status === 'off');
               const hasSwap = day.swaps.length > 0 || day.has_manual_change;
+              const dayVacations = day.vacations ?? [];
+              const hasVacation = dayVacations.length > 0;
+              const hasApprovedVacation = dayVacations.some((v) => v.status === 'approved');
+              const isOpenOff = Boolean(day.is_open_off);
+              const hasCascade = Boolean(day.cascade_info);
               const canOpenDay =
-                (!day.is_sunday && !day.is_before_start && isAdmin) || hasSwap;
+                (!day.is_sunday && !day.is_before_start && isAdmin) ||
+                hasSwap ||
+                hasVacation ||
+                hasCascade;
 
               return (
                 <button
@@ -499,15 +584,19 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                       ? 'border-teal-600 ring-1 ring-teal-600/20'
                       : day.is_before_start
                         ? 'border-slate-100 bg-slate-50/70 text-slate-300'
-                        : hasSwap
-                          ? 'border-sky-300 bg-sky-50/50 hover:border-sky-400'
-                          : isMyOff
-                            ? 'border-emerald-300 bg-emerald-50/70'
-                            : day.holiday
-                              ? 'border-amber-200 bg-amber-50/70'
-                              : day.is_sunday
-                                ? 'border-slate-100 bg-slate-50 text-slate-400'
-                                : 'border-slate-100 bg-white hover:border-slate-300'
+                        : hasApprovedVacation
+                          ? 'border-violet-300 bg-violet-50/40 hover:border-violet-400'
+                          : hasVacation
+                            ? 'border-dashed border-orange-300 bg-orange-50/40 hover:border-orange-400'
+                            : hasSwap
+                              ? 'border-sky-300 bg-sky-50/50 hover:border-sky-400'
+                              : isMyOff
+                                ? 'border-emerald-300 bg-emerald-50/70'
+                                : day.holiday
+                                  ? 'border-amber-200 bg-amber-50/70'
+                                  : day.is_sunday
+                                    ? 'border-slate-100 bg-slate-50 text-slate-400'
+                                    : 'border-slate-100 bg-white hover:border-slate-300'
                   } ${canOpenDay ? 'cursor-pointer' : 'cursor-default'}`}
                 >
                   <div className="flex w-full items-center justify-between gap-0.5">
@@ -523,41 +612,79 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                       {Number(day.date.slice(8, 10))}
                     </span>
 
-                    {hasSwap && (
-                      <span
-                        title="Houve troca neste dia — clique para ver"
-                        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white"
-                      >
-                        <ArrowLeftRight className="h-2.5 w-2.5" />
-                      </span>
-                    )}
+                    <div className="flex items-center gap-0.5">
+                      {hasVacation && (
+                        <span
+                          title={
+                            hasApprovedVacation
+                              ? 'Férias aprovadas neste dia — clique para ver'
+                              : 'Férias aguardando aprovação — clique para ver'
+                          }
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${
+                            hasApprovedVacation
+                              ? 'bg-violet-600 text-white'
+                              : 'border border-dashed border-orange-500 bg-orange-200 text-orange-900'
+                          }`}
+                        >
+                          <Palmtree className="h-2.5 w-2.5" />
+                        </span>
+                      )}
+                      {hasSwap && (
+                        <span
+                          title="Houve troca neste dia — clique para ver"
+                          className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white"
+                        >
+                          <ArrowLeftRight className="h-2.5 w-2.5" />
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="mt-1 w-full space-y-0.5 overflow-hidden">
                     {day.is_before_start ? (
                       <span className="block text-[9px] text-slate-300">—</span>
-                    ) : day.holiday ? (
-                      <span className="block truncate rounded bg-amber-100 px-1 py-0.5 text-[9px] font-semibold text-amber-800">
-                        Feriado
-                      </span>
-                    ) : day.is_sunday ? (
-                      <span className="block text-[9px] text-slate-400">Dom</span>
                     ) : (
-                      offList.map((emp) => {
-                        const isMe = emp.employee_id === user.id;
-                        return (
+                      <>
+                        {day.holiday ? (
+                          <span className="block truncate rounded bg-amber-100 px-1 py-0.5 text-[9px] font-semibold text-amber-800">
+                            Feriado
+                          </span>
+                        ) : day.is_sunday ? (
+                          <span className="block text-[9px] text-slate-400">Dom</span>
+                        ) : isOpenOff ? (
+                          <span className="block truncate rounded border border-dashed border-teal-500 bg-teal-50 px-1 py-0.5 text-[9px] font-bold text-teal-900">
+                            ✨ Livre
+                          </span>
+                        ) : (
+                          offList.map((emp) => {
+                            const isMe = emp.employee_id === user.id;
+                            return (
+                              <span
+                                key={emp.employee_id}
+                                className={`block truncate rounded px-1 py-0.5 text-[10px] font-semibold ${
+                                  isMe
+                                    ? 'bg-teal-700 text-white'
+                                    : 'bg-emerald-100/80 text-emerald-900'
+                                }`}
+                              >
+                                {emp.name.split(' ')[0]}
+                              </span>
+                            );
+                          })
+                        )}
+                        {dayVacations.map((vac) => (
                           <span
-                            key={emp.employee_id}
-                            className={`block truncate rounded px-1 py-0.5 text-[10px] font-semibold ${
-                              isMe
-                                ? 'bg-teal-700 text-white'
-                                : 'bg-emerald-100/80 text-emerald-900'
+                            key={`vac-${vac.id}`}
+                            className={`block truncate rounded px-1 py-0.5 text-[9px] font-semibold ${
+                              vac.status === 'approved'
+                                ? 'bg-violet-600 text-white'
+                                : 'border border-dashed border-orange-400 bg-orange-100 text-orange-900'
                             }`}
                           >
-                            {emp.name.split(' ')[0]}
+                            🏖️ {vac.employee_name.split(' ')[0]}
                           </span>
-                        );
-                      })
+                        ))}
+                      </>
                     )}
                   </div>
                 </button>
@@ -574,6 +701,14 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
             <span className="inline-flex items-center gap-1.5">
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
               Folga de colega
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-violet-600" />
+              Férias aprovadas
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full border border-dashed border-orange-500 bg-orange-200" />
+              Férias pendentes
             </span>
             <span className="inline-flex items-center gap-1.5">
               <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-sky-600 text-white">
@@ -609,6 +744,112 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
       >
         {selectedDay && (
           <div className="space-y-4">
+            {/* Bloco explicativo do Remanejamento Automático de Sábado em Férias / Quinta Livre */}
+            {selectedDay.cascade_info && (
+              <div className="rounded-2xl border border-teal-200 bg-teal-50/70 p-3.5 text-xs text-teal-950">
+                <div className="flex items-center gap-1.5 text-sm font-bold text-teal-900">
+                  <Sparkles className="h-4 w-4 text-teal-700" />
+                  {selectedDay.is_open_off
+                    ? 'Folga Livre disponível nesta data'
+                    : 'Folga remanejada automaticamente'}
+                </div>
+                <p className="mt-1.5 leading-relaxed text-teal-900">{selectedDay.cascade_info}</p>
+                {selectedDay.is_open_off && (
+                  <p className="mt-2 rounded-xl bg-white/90 p-2.5 text-[11px] font-medium text-teal-900">
+                    💡 Para assumir esta Folga Livre, abra a aba <strong>Trocas → Pedir troca</strong> e
+                    escolha a opção <strong>✨ Folga Livre</strong> (só precisa da aprovação do
+                    administrador).
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Bloco visual de Férias neste dia (visível para TODOS) */}
+            {(selectedDay.vacations ?? []).length > 0 && (
+              <div className="space-y-2.5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">
+                  Férias neste dia
+                </p>
+                {selectedDay.vacations.map((vac) => {
+                  const isApproved = vac.status === 'approved';
+                  return (
+                    <div
+                      key={vac.id}
+                      className={`rounded-2xl border p-3.5 text-xs ${
+                        isApproved
+                          ? 'border-violet-200 bg-violet-50/60 text-slate-700'
+                          : 'border-dashed border-orange-300 bg-orange-50/60 text-slate-700'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                          <span
+                            className="h-2.5 w-2.5 rounded-full"
+                            style={{ backgroundColor: vac.employee_color }}
+                          />
+                          <span>{vac.employee_name}</span>
+                          <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-teal-800">
+                            {vac.days_count} {vac.days_count === 1 ? 'dia corrido' : 'dias corridos'}
+                          </span>
+                        </div>
+                        <span
+                          className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                            isApproved
+                              ? 'bg-violet-600 text-white'
+                              : 'border border-dashed border-orange-400 bg-orange-100 text-orange-900'
+                          }`}
+                        >
+                          {isApproved ? '🏖️ Férias aprovadas' : '⏳ Aguardando aprovação'}
+                        </span>
+                      </div>
+
+                      <div className="mt-2 rounded-xl bg-white/90 p-2.5">
+                        Período completo:{' '}
+                        <strong className="text-slate-900">
+                          {formatFullDateBr(vac.start_date)} até {formatFullDateBr(vac.end_date)}
+                        </strong>
+                      </div>
+
+                      {vac.reason && (
+                        <p className="mt-2 text-xs text-slate-600">
+                          <span className="font-semibold text-slate-500">Observação:</span>{' '}
+                          {vac.reason}
+                        </p>
+                      )}
+                      {vac.approved_by_name && (
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          Aprovado por <strong>{vac.approved_by_name}</strong>
+                        </p>
+                      )}
+
+                      {isAdmin && vac.status === 'pending' && (
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => handleRespondVacationInModal(vac.id, 'approved')}
+                            className="inline-flex flex-1 items-center justify-center gap-1 rounded-xl bg-slate-900 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                            Aprovar férias
+                          </button>
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => handleRespondVacationInModal(vac.id, 'rejected')}
+                            className="inline-flex flex-1 items-center justify-center gap-1 rounded-xl border border-rose-200 bg-white py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                            Recusar
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Bloco visual de trocas registradas neste dia (visível para TODOS) */}
             {selectedDay.swaps.length > 0 && (
               <div className="space-y-2.5">
@@ -647,24 +888,27 @@ export function TeamSchedulePage({ user }: TeamSchedulePageProps) {
                           <strong className="text-teal-800">
                             {weekdayShort(getWeekday(sw.target_date))},{' '}
                             {formatDayMonth(sw.target_date)}
+                            {sw.is_open_swap ? ' (Folga Livre)' : ''}
                           </strong>{' '}
                           <span className="text-slate-400">
                             (antes era {weekdayShort(getWeekday(sw.requester_date))},{' '}
                             {formatDayMonth(sw.requester_date)})
                           </span>
                         </div>
-                        <div>
-                          <strong className="text-slate-900">{sw.target_name}</strong> passou a
-                          folgar em{' '}
-                          <strong className="text-teal-800">
-                            {weekdayShort(getWeekday(sw.requester_date))},{' '}
-                            {formatDayMonth(sw.requester_date)}
-                          </strong>{' '}
-                          <span className="text-slate-400">
-                            (antes era {weekdayShort(getWeekday(sw.target_date))},{' '}
-                            {formatDayMonth(sw.target_date)})
-                          </span>
-                        </div>
+                        {!sw.is_open_swap && (
+                          <div>
+                            <strong className="text-slate-900">{sw.target_name}</strong> passou a
+                            folgar em{' '}
+                            <strong className="text-teal-800">
+                              {weekdayShort(getWeekday(sw.requester_date))},{' '}
+                              {formatDayMonth(sw.requester_date)}
+                            </strong>{' '}
+                            <span className="text-slate-400">
+                              (antes era {weekdayShort(getWeekday(sw.target_date))},{' '}
+                              {formatDayMonth(sw.target_date)})
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       {sw.reason && (

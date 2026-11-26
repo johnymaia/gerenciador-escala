@@ -6,6 +6,7 @@ import {
   Loader2,
   Plus,
   RotateCcw,
+  Sparkles,
   X,
   XCircle,
 } from 'lucide-react';
@@ -70,7 +71,7 @@ export function SwapsPage({ user, onPendingCountChange }: SwapsPageProps) {
 
   // Se for funcionária e não tiver nenhuma recebida pendente mas tiver enviadas, facilita visualização
   const receivedRequests = useMemo(
-    () => requests.filter((r) => r.target_id === user.id),
+    () => requests.filter((r) => !r.is_open_swap && r.target_id === user.id),
     [requests, user.id],
   );
   const sentRequests = useMemo(
@@ -106,12 +107,23 @@ export function SwapsPage({ user, onPendingCountChange }: SwapsPageProps) {
     [upcomingDays, user.id],
   );
 
+  // Dias com Folga Livre (gerados pela cascata de sábado em férias)
+  const openOffOptions = useMemo(
+    () => upcomingDays.filter((d) => d.is_open_off && d.off_employee_ids.length === 0 && d.date !== myDate),
+    [upcomingDays, myDate],
+  );
+
+  // targetId === -1 representa "Folga Livre (Sem colega — só aprovação do Admin)"
+  const isOpenSwapSelected = targetId === -1;
+
   const targetOffOptions = useMemo(
     () =>
-      upcomingDays.filter(
-        (d) => targetId > 0 && d.off_employee_ids.includes(targetId) && d.date !== myDate,
-      ),
-    [upcomingDays, targetId, myDate],
+      isOpenSwapSelected
+        ? openOffOptions
+        : upcomingDays.filter(
+            (d) => targetId > 0 && d.off_employee_ids.includes(targetId) && d.date !== myDate,
+          ),
+    [upcomingDays, targetId, myDate, isOpenSwapSelected, openOffOptions],
   );
 
   async function openNewSwapModal() {
@@ -128,6 +140,9 @@ export function SwapsPage({ user, onPendingCountChange }: SwapsPageProps) {
       setColleagues(others);
 
       const firstMyOff = sched.days.find((d) => d.off_employee_ids.includes(user.id));
+      const firstOpenOff = sched.days.find(
+        (d) => d.is_open_off && d.off_employee_ids.length === 0 && d.date !== firstMyOff?.date,
+      );
       const firstColleague = others[0];
       const firstTargetOff = firstColleague
         ? sched.days.find(
@@ -136,8 +151,13 @@ export function SwapsPage({ user, onPendingCountChange }: SwapsPageProps) {
         : undefined;
 
       setMyDate(firstMyOff?.date || '');
-      setTargetId(firstColleague?.id || 0);
-      setTargetDate(firstTargetOff?.date || '');
+      if (firstOpenOff) {
+        setTargetId(-1);
+        setTargetDate(firstOpenOff.date);
+      } else {
+        setTargetId(firstColleague?.id || 0);
+        setTargetDate(firstTargetOff?.date || '');
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erro ao carregar datas de folga.');
     } finally {
@@ -147,6 +167,13 @@ export function SwapsPage({ user, onPendingCountChange }: SwapsPageProps) {
 
   function handleTargetChange(nextTargetId: number) {
     setTargetId(nextTargetId);
+    if (nextTargetId === -1) {
+      const firstOpen = upcomingDays.find(
+        (d) => d.is_open_off && d.off_employee_ids.length === 0 && d.date !== myDate,
+      );
+      setTargetDate(firstOpen?.date || '');
+      return;
+    }
     const firstOff = upcomingDays.find(
       (d) => d.off_employee_ids.includes(nextTargetId) && d.date !== myDate,
     );
@@ -160,17 +187,31 @@ export function SwapsPage({ user, onPendingCountChange }: SwapsPageProps) {
     setError('');
     setNotice('');
     try {
-      await api.createSwapRequest({
-        requester_date: myDate,
-        target_id: targetId,
-        target_date: targetDate,
-        reason,
-      });
-      setNewOpen(false);
-      if (!isAdmin) setEmpFilter('sent');
-      setNotice(
-        'Solicitação enviada! Ela ficará pendente até ser aprovada pela colega e pelo administrador.',
-      );
+      if (targetId === -1) {
+        await api.createSwapRequest({
+          requester_date: myDate,
+          target_date: targetDate,
+          reason,
+          is_open_swap: true,
+        });
+        setNewOpen(false);
+        if (!isAdmin) setEmpFilter('sent');
+        setNotice(
+          'Solicitação de Folga Livre enviada! Como esse dia está livre, ela precisa apenas da aprovação do administrador.',
+        );
+      } else {
+        await api.createSwapRequest({
+          requester_date: myDate,
+          target_id: targetId,
+          target_date: targetDate,
+          reason,
+        });
+        setNewOpen(false);
+        if (!isAdmin) setEmpFilter('sent');
+        setNotice(
+          'Solicitação enviada! Ela ficará pendente até ser aprovada pela colega e pelo administrador.',
+        );
+      }
       await loadSwaps();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erro ao enviar solicitação.');
@@ -383,7 +424,7 @@ export function SwapsPage({ user, onPendingCountChange }: SwapsPageProps) {
 
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">
-                2. Colega com quem quer trocar
+                2. Com quem (ou qual vaga livre) quer trocar
               </label>
               <select
                 required
@@ -391,6 +432,11 @@ export function SwapsPage({ user, onPendingCountChange }: SwapsPageProps) {
                 onChange={(e) => handleTargetChange(Number(e.target.value))}
                 className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm"
               >
+                {openOffOptions.length > 0 && (
+                  <option value={-1}>
+                    ✨ Folga Livre ({openOffOptions.length} disponível — só aprovação do Admin)
+                  </option>
+                )}
                 {colleagues.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -401,7 +447,9 @@ export function SwapsPage({ user, onPendingCountChange }: SwapsPageProps) {
 
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">
-                3. Dia de folga de {selectedColleague?.name || 'colega'} que você quer pegar
+                {isOpenSwapSelected
+                  ? '3. Dia de Folga Livre que você quer assumir'
+                  : `3. Dia de folga de ${selectedColleague?.name || 'colega'} que você quer pegar`}
               </label>
               <select
                 required
@@ -412,6 +460,7 @@ export function SwapsPage({ user, onPendingCountChange }: SwapsPageProps) {
                 {targetOffOptions.map((d) => (
                   <option key={d.date} value={d.date}>
                     {weekdayShort(d.weekday)}, {formatDayMonth(d.date)}
+                    {isOpenSwapSelected ? ' — ✨ Folga Livre' : ''}
                   </option>
                 ))}
               </select>
@@ -430,17 +479,33 @@ export function SwapsPage({ user, onPendingCountChange }: SwapsPageProps) {
               />
             </div>
 
-            {myDate && targetDate && selectedColleague && (
+            {myDate && targetDate && (isOpenSwapSelected || selectedColleague) && (
               <div className="rounded-2xl border border-teal-200/80 bg-teal-50/60 p-3 text-xs text-teal-900">
-                Você passa a folgar em{' '}
-                <strong>
-                  {weekdayShort(getWeekday(targetDate))}, {formatDayMonth(targetDate)}
-                </strong>{' '}
-                e <strong>{selectedColleague.name}</strong> passa a folgar em{' '}
-                <strong>
-                  {weekdayShort(getWeekday(myDate))}, {formatDayMonth(myDate)}
-                </strong>
-                .
+                {isOpenSwapSelected ? (
+                  <>
+                    Você trabalha na sua folga de{' '}
+                    <strong>
+                      {weekdayShort(getWeekday(myDate))}, {formatDayMonth(myDate)}
+                    </strong>{' '}
+                    e passa a folgar na <strong>Folga Livre</strong> de{' '}
+                    <strong>
+                      {weekdayShort(getWeekday(targetDate))}, {formatDayMonth(targetDate)}
+                    </strong>
+                    . Como o dia está livre, <strong>só precisa da aprovação do Administrador</strong>!
+                  </>
+                ) : (
+                  <>
+                    Você passa a folgar em{' '}
+                    <strong>
+                      {weekdayShort(getWeekday(targetDate))}, {formatDayMonth(targetDate)}
+                    </strong>{' '}
+                    e <strong>{selectedColleague?.name}</strong> passa a folgar em{' '}
+                    <strong>
+                      {weekdayShort(getWeekday(myDate))}, {formatDayMonth(myDate)}
+                    </strong>
+                    .
+                  </>
+                )}
               </div>
             )}
 
@@ -518,12 +583,13 @@ function SwapCard({
 }) {
   const [confirmUndo, setConfirmUndo] = useState(false);
   const isAdmin = currentUser.role === 'admin';
-  const isTarget = swap.target_id === currentUser.id;
+  const isOpenSwap = Boolean(swap.is_open_swap);
+  const isTarget = !isOpenSwap && swap.target_id === currentUser.id;
   const isRequester = swap.requester_id === currentUser.id;
   const today = getTodayBrazilYmd();
 
   const canActAsTarget =
-    swap.status === 'pending' && isTarget && swap.target_status === 'pending';
+    !isOpenSwap && swap.status === 'pending' && isTarget && swap.target_status === 'pending';
   const canActAsAdmin =
     swap.status === 'pending' && isAdmin && swap.admin_status === 'pending';
   const canCancel = swap.status === 'pending' && isRequester;
@@ -540,12 +606,14 @@ function SwapCard({
   if (swap.status === 'approved') {
     statusHeader = 'Aprovada';
     statusBadgeClass = 'bg-emerald-100 text-emerald-800';
-    statusSummary = 'Aprovada por ambos e aplicada automaticamente na escala.';
+    statusSummary = isOpenSwap
+      ? 'Folga Livre aprovada pelo administrador e aplicada na escala.'
+      : 'Aprovada por ambos e aplicada automaticamente na escala.';
   } else if (swap.status === 'rejected') {
     statusHeader = 'Recusada';
     statusBadgeClass = 'bg-rose-100 text-rose-700';
     statusSummary =
-      swap.target_status === 'rejected'
+      !isOpenSwap && swap.target_status === 'rejected'
         ? `Recusada por ${swap.target_name}.`
         : `Recusada pelo administrador${swap.admin_decided_by_name ? ` (${swap.admin_decided_by_name})` : ''}.`;
   } else if (swap.status === 'cancelled') {
@@ -554,7 +622,9 @@ function SwapCard({
     statusSummary = `Cancelada por ${swap.requester_name}.`;
   } else {
     statusHeader = 'Pendente';
-    if (swap.target_status === 'pending' && swap.admin_status === 'pending') {
+    if (isOpenSwap) {
+      statusSummary = 'Dia de Folga Livre — falta apenas a aprovação do Administrador.';
+    } else if (swap.target_status === 'pending' && swap.admin_status === 'pending') {
       statusSummary = `Faltam 2 aprovações: ${swap.target_name} e Administrador.`;
     } else if (swap.target_status === 'approved' && swap.admin_status === 'pending') {
       statusSummary = `${swap.target_name} já aprovou — falta apenas aprovação do Administrador.`;
@@ -573,11 +643,20 @@ function SwapCard({
           />
           <span>{swap.requester_name}</span>
           <ArrowLeftRight className="h-3.5 w-3.5 text-slate-400" />
-          <span
-            className="h-2.5 w-2.5 rounded-full"
-            style={{ backgroundColor: swap.target_color }}
-          />
-          <span>{swap.target_name}</span>
+          {isOpenSwap ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-teal-200 bg-teal-50 px-2.5 py-0.5 text-xs font-semibold text-teal-800">
+              <Sparkles className="h-3 w-3 text-teal-600" />
+              Folga Livre
+            </span>
+          ) : (
+            <>
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: swap.target_color }}
+              />
+              <span>{swap.target_name}</span>
+            </>
+          )}
         </div>
 
         <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${statusBadgeClass}`}>
@@ -589,7 +668,7 @@ function SwapCard({
       <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-2.5 text-xs">
         <div>
           <span className="text-[10px] font-medium uppercase text-slate-400">
-            Folga de {swap.requester_name}
+            {isOpenSwap ? `Folga atual de ${swap.requester_name}` : `Folga de ${swap.requester_name}`}
           </span>
           <div className="mt-0.5 font-semibold text-slate-800">
             {weekdayShort(getWeekday(swap.requester_date))}, {formatDayMonth(swap.requester_date)}
@@ -597,9 +676,9 @@ function SwapCard({
         </div>
         <div className="border-l border-slate-200 pl-2.5">
           <span className="text-[10px] font-medium uppercase text-slate-400">
-            Folga de {swap.target_name}
+            {isOpenSwap ? 'Passa a folgar em (Folga Livre)' : `Folga de ${swap.target_name}`}
           </span>
-          <div className="mt-0.5 font-semibold text-slate-800">
+          <div className="mt-0.5 font-semibold text-teal-800">
             {weekdayShort(getWeekday(swap.target_date))}, {formatDayMonth(swap.target_date)}
           </div>
         </div>
@@ -611,15 +690,25 @@ function SwapCard({
         </p>
       )}
 
-      {/* Dupla aprovação visual (quem já aprovou e quem falta) */}
-      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <ApprovalPill label={`Colega (${swap.target_name})`} state={swap.target_status} />
-        <ApprovalPill
-          label="Administrador"
-          state={swap.admin_status}
-          detail={swap.admin_decided_by_name ?? undefined}
-        />
-      </div>
+      {/* Aprovação visual */}
+      {isOpenSwap ? (
+        <div className="mt-3">
+          <ApprovalPill
+            label="Aprovação única: Administrador (Folga Livre)"
+            state={swap.admin_status}
+            detail={swap.admin_decided_by_name ?? undefined}
+          />
+        </div>
+      ) : (
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <ApprovalPill label={`Colega (${swap.target_name})`} state={swap.target_status} />
+          <ApprovalPill
+            label="Administrador"
+            state={swap.admin_status}
+            detail={swap.admin_decided_by_name ?? undefined}
+          />
+        </div>
+      )}
 
       <p className="mt-2.5 text-[11px] font-medium text-slate-500">{statusSummary}</p>
 

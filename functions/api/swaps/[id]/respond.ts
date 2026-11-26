@@ -15,7 +15,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
 
   const swap = await env.DB.prepare(
     `SELECT id, requester_id, requester_date, target_id, target_date, reason,
-            target_status, admin_status, status
+            is_open_swap, target_status, admin_status, status
      FROM swap_requests WHERE id = ?`,
   )
     .bind(id)
@@ -26,12 +26,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       target_id: number;
       target_date: string;
       reason: string;
+      is_open_swap: number;
       target_status: ApprovalState;
       admin_status: ApprovalState;
       status: SwapOverallStatus;
     }>();
 
   if (!swap) return errorJson('Solicitação não encontrada.', 404);
+  const isOpenSwap = Boolean(swap.is_open_swap);
 
   const body = await readJsonBody<{
     decision?: 'approved' | 'rejected' | 'cancelled' | 'undo';
@@ -60,25 +62,39 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
       );
     }
 
-    await env.DB.batch([
-      env.DB.prepare("UPDATE swap_requests SET status = 'cancelled' WHERE id = ?").bind(id),
-      env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?').bind(
-        swap.requester_date,
-        swap.requester_id,
-      ),
-      env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?').bind(
-        swap.target_date,
-        swap.requester_id,
-      ),
-      env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?').bind(
-        swap.target_date,
-        swap.target_id,
-      ),
-      env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?').bind(
-        swap.requester_date,
-        swap.target_id,
-      ),
-    ]);
+    if (isOpenSwap) {
+      await env.DB.batch([
+        env.DB.prepare("UPDATE swap_requests SET status = 'cancelled' WHERE id = ?").bind(id),
+        env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?').bind(
+          swap.requester_date,
+          swap.requester_id,
+        ),
+        env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?').bind(
+          swap.target_date,
+          swap.requester_id,
+        ),
+      ]);
+    } else {
+      await env.DB.batch([
+        env.DB.prepare("UPDATE swap_requests SET status = 'cancelled' WHERE id = ?").bind(id),
+        env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?').bind(
+          swap.requester_date,
+          swap.requester_id,
+        ),
+        env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?').bind(
+          swap.target_date,
+          swap.requester_id,
+        ),
+        env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?').bind(
+          swap.target_date,
+          swap.target_id,
+        ),
+        env.DB.prepare('DELETE FROM schedule_overrides WHERE date = ? AND employee_id = ?').bind(
+          swap.requester_date,
+          swap.target_id,
+        ),
+      ]);
+    }
 
     return json({ ok: true, status: 'cancelled', undone: true });
   }
@@ -98,7 +114,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     return json({ ok: true, status: 'cancelled' });
   }
 
-  const isTarget = swap.target_id === user.id;
+  const isTarget = !isOpenSwap && swap.target_id === user.id;
   const isAdmin = user.role === 'admin';
 
   // Decide qual papel está respondendo (colega ou administrador)
@@ -152,31 +168,63 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, params }
     );
   }
 
-  // Quando AMBAS as aprovações (colega + administrador) forem confirmadas, aplica automaticamente na escala!
+  // Quando AMBAS as aprovações (colega + administrador, ou somente admin em Folga Livre) forem confirmadas, aplica automaticamente na escala!
   if (nextOverallStatus === 'approved') {
-    const note = swap.reason ? `Troca aprovada: ${swap.reason}` : 'Troca de folga aprovada';
-    statements.push(
-      env.DB.prepare(
-        `INSERT INTO schedule_overrides (date, employee_id, status, note)
-         VALUES (?, ?, 'work', ?)
-         ON CONFLICT(date, employee_id) DO UPDATE SET status = 'work', note = excluded.note`,
-      ).bind(swap.requester_date, swap.requester_id, note),
-      env.DB.prepare(
-        `INSERT INTO schedule_overrides (date, employee_id, status, note)
-         VALUES (?, ?, 'off', ?)
-         ON CONFLICT(date, employee_id) DO UPDATE SET status = 'off', note = excluded.note`,
-      ).bind(swap.target_date, swap.requester_id, note),
-      env.DB.prepare(
-        `INSERT INTO schedule_overrides (date, employee_id, status, note)
-         VALUES (?, ?, 'work', ?)
-         ON CONFLICT(date, employee_id) DO UPDATE SET status = 'work', note = excluded.note`,
-      ).bind(swap.target_date, swap.target_id, note),
-      env.DB.prepare(
-        `INSERT INTO schedule_overrides (date, employee_id, status, note)
-         VALUES (?, ?, 'off', ?)
-         ON CONFLICT(date, employee_id) DO UPDATE SET status = 'off', note = excluded.note`,
-      ).bind(swap.requester_date, swap.target_id, note),
-    );
+    if (isOpenSwap) {
+      // Garante que nenhuma outra pessoa já ocupou essa Folga Livre antes
+      const alreadyTaken = await env.DB.prepare(
+        `SELECT employee_id FROM schedule_overrides WHERE date = ? AND status = 'off' AND employee_id != ? LIMIT 1`,
+      )
+        .bind(swap.target_date, swap.requester_id)
+        .first();
+
+      if (alreadyTaken) {
+        return errorJson(
+          'Esta Folga Livre já foi preenchida por outra colaboradora.',
+          409,
+        );
+      }
+
+      const note = swap.reason
+        ? `Folga Livre aprovada: ${swap.reason}`
+        : 'Assumiu Folga Livre (remanejamento de férias)';
+      statements.push(
+        env.DB.prepare(
+          `INSERT INTO schedule_overrides (date, employee_id, status, note)
+           VALUES (?, ?, 'work', ?)
+           ON CONFLICT(date, employee_id) DO UPDATE SET status = 'work', note = excluded.note`,
+        ).bind(swap.requester_date, swap.requester_id, note),
+        env.DB.prepare(
+          `INSERT INTO schedule_overrides (date, employee_id, status, note)
+           VALUES (?, ?, 'off', ?)
+           ON CONFLICT(date, employee_id) DO UPDATE SET status = 'off', note = excluded.note`,
+        ).bind(swap.target_date, swap.requester_id, note),
+      );
+    } else {
+      const note = swap.reason ? `Troca aprovada: ${swap.reason}` : 'Troca de folga aprovada';
+      statements.push(
+        env.DB.prepare(
+          `INSERT INTO schedule_overrides (date, employee_id, status, note)
+           VALUES (?, ?, 'work', ?)
+           ON CONFLICT(date, employee_id) DO UPDATE SET status = 'work', note = excluded.note`,
+        ).bind(swap.requester_date, swap.requester_id, note),
+        env.DB.prepare(
+          `INSERT INTO schedule_overrides (date, employee_id, status, note)
+           VALUES (?, ?, 'off', ?)
+           ON CONFLICT(date, employee_id) DO UPDATE SET status = 'off', note = excluded.note`,
+        ).bind(swap.target_date, swap.requester_id, note),
+        env.DB.prepare(
+          `INSERT INTO schedule_overrides (date, employee_id, status, note)
+           VALUES (?, ?, 'work', ?)
+           ON CONFLICT(date, employee_id) DO UPDATE SET status = 'work', note = excluded.note`,
+        ).bind(swap.target_date, swap.target_id, note),
+        env.DB.prepare(
+          `INSERT INTO schedule_overrides (date, employee_id, status, note)
+           VALUES (?, ?, 'off', ?)
+           ON CONFLICT(date, employee_id) DO UPDATE SET status = 'off', note = excluded.note`,
+        ).bind(swap.requester_date, swap.target_id, note),
+      );
+    }
   }
 
   await env.DB.batch(statements);

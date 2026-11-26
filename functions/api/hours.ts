@@ -11,6 +11,7 @@ import { getSessionUser, passwordChangeRequiredResponse } from '../_lib/auth';
 import {
   ensureSeeded,
   getAllEmployees,
+  getApprovedVacationsInRange,
   getHolidayOverrides,
   getHourAdjustments,
   getScheduleOverrides,
@@ -43,14 +44,16 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
   const isAdmin = user.role === 'admin';
 
-  const [settings, employees, holidayOverrides, scheduleOverrides, adjustments] = await Promise.all([
-    getSettings(env),
-    getAllEmployees(env, false),
-    getHolidayOverrides(env),
-    getScheduleOverrides(env, overallFrom, overallTo),
-    // PRIVACIDADE ESTRITA: funcionário comum só consulta os próprios ajustes no banco!
-    getHourAdjustments(env, overallFrom, overallTo, isAdmin ? undefined : user.id),
-  ]);
+  const [settings, employees, holidayOverrides, scheduleOverrides, adjustments, approvedVacations] =
+    await Promise.all([
+      getSettings(env),
+      getAllEmployees(env, false),
+      getHolidayOverrides(env),
+      getScheduleOverrides(env, overallFrom, overallTo),
+      // PRIVACIDADE ESTRITA: funcionário comum só consulta os próprios ajustes no banco!
+      getHourAdjustments(env, overallFrom, overallTo, isAdmin ? undefined : user.id),
+      getApprovedVacationsInRange(env, overallFrom, overallTo),
+    ]);
 
   const allDays = computeScheduleRange({
     from: overallFrom,
@@ -59,6 +62,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     settings,
     holidayOverrides,
     scheduleOverrides,
+    approvedVacations,
   });
 
   const weekDays = allDays.filter((d) => d.date >= weekFrom && d.date <= weekTo);

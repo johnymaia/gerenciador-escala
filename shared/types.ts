@@ -76,6 +76,40 @@ export interface DaySwapSummary {
   target_date: string;
   reason: string;
   approved_by_name: string | null;
+  is_open_swap: boolean;
+}
+
+export type VacationStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+export interface DayVacationSummary {
+  id: number;
+  employee_id: number;
+  employee_name: string;
+  employee_color: string;
+  start_date: string; // YYYY-MM-DD
+  end_date: string;   // YYYY-MM-DD
+  days_count: number;
+  reason: string;
+  status: 'pending' | 'approved';
+  approved_by_name: string | null;
+}
+
+export interface VacationRequestItem {
+  id: number;
+  employee_id: number;
+  employee_name: string;
+  employee_color: string;
+  start_date: string; // YYYY-MM-DD
+  end_date: string;   // YYYY-MM-DD
+  days_count: number;
+  reason: string;
+  status: VacationStatus;
+  created_by: number;
+  created_by_name: string;
+  admin_decided_by: number | null;
+  admin_decided_by_name: string | null;
+  admin_decided_at: string | null;
+  created_at: string;
 }
 
 export interface ScheduleDay {
@@ -86,8 +120,11 @@ export interface ScheduleDay {
   holiday: HolidayItem | null;
   off_employee_ids: number[];
   base_off_employee_id: number | null;
+  is_open_off: boolean;
+  cascade_info: string | null;
   employees: ScheduleDayEmployee[];
   swaps: DaySwapSummary[];
+  vacations: DayVacationSummary[];
   has_manual_change: boolean;
 }
 
@@ -136,6 +173,7 @@ export interface SwapRequestItem {
   target_color: string;
   target_date: string;
   reason: string;
+  is_open_swap: boolean;
   target_status: ApprovalState;
   target_decided_at: string | null;
   admin_status: ApprovalState;

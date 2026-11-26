@@ -77,6 +77,7 @@ export async function ensureSeeded(env: Env): Promise<void> {
       target_id INTEGER NOT NULL,
       target_date TEXT NOT NULL,
       reason TEXT NOT NULL DEFAULT '',
+      is_open_swap INTEGER NOT NULL DEFAULT 0,
       target_status TEXT NOT NULL DEFAULT 'pending' CHECK (target_status IN ('pending', 'approved', 'rejected')),
       target_decided_at TEXT,
       admin_status TEXT NOT NULL DEFAULT 'pending' CHECK (admin_status IN ('pending', 'approved', 'rejected')),
@@ -88,6 +89,22 @@ export async function ensureSeeded(env: Env): Promise<void> {
       FOREIGN KEY (target_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (admin_decided_by) REFERENCES users(id) ON DELETE SET NULL
     )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS vacation_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      days_count INTEGER NOT NULL,
+      reason TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
+      created_by INTEGER NOT NULL,
+      admin_decided_by INTEGER,
+      admin_decided_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (admin_decided_by) REFERENCES users(id) ON DELETE SET NULL
+    )`),
   ]);
 
   // Garante coluna must_change_password em bancos já existentes
@@ -96,6 +113,15 @@ export async function ensureSeeded(env: Env): Promise<void> {
   if (!hasMustChange) {
     await env.DB.prepare(
       'ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 1',
+    ).run();
+  }
+
+  // Garante coluna is_open_swap em swap_requests já existentes
+  const swapCols = await env.DB.prepare('PRAGMA table_info(swap_requests)').all<{ name: string }>();
+  const hasOpenSwapCol = (swapCols.results ?? []).some((c) => c.name === 'is_open_swap');
+  if (!hasOpenSwapCol) {
+    await env.DB.prepare(
+      'ALTER TABLE swap_requests ADD COLUMN is_open_swap INTEGER NOT NULL DEFAULT 0',
     ).run();
   }
 
@@ -214,6 +240,25 @@ export async function getScheduleOverrides(
   )
     .bind(from, to)
     .all<ScheduleOverrideRecord>();
+
+  return results ?? [];
+}
+
+export async function getApprovedVacationsInRange(
+  env: Env,
+  from: string,
+  to: string,
+): Promise<Array<{ employee_id: number; start_date: string; end_date: string }>> {
+  // Amplia a janela em +/- 7 dias para garantir que a semana inteira (Qui/Sex/Sáb) seja avaliada na cascata
+  const { results } = await env.DB.prepare(
+    `SELECT employee_id, start_date, end_date
+     FROM vacation_requests
+     WHERE status = 'approved'
+       AND start_date <= date(?, '+7 days')
+       AND end_date >= date(?, '-7 days')`,
+  )
+    .bind(to, from)
+    .all<{ employee_id: number; start_date: string; end_date: string }>();
 
   return results ?? [];
 }

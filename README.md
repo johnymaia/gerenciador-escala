@@ -24,6 +24,11 @@ Sistema web leve, **mobile-first (PWA)** e **100% gratuito** rodando na **Cloudf
   - Exige aprovação da **colega** e de um **administrador** (mostrando em tempo real quem já aprovou e qual aprovação falta).
   - Quando ambas aprovam, a troca é aplicada automaticamente na escala e ganha **indicador visual (`⇄`) no calendário** (semana e mês) com detalhes ao clicar.
   - Qualquer administrador pode **desfazer** uma troca aprovada desde que nenhuma das duas datas já tenha passado.
+- **Controle e Agendamento de Férias:**
+  - **Funcionária:** pode solicitar férias sem limite de dias, visualizando na hora a **quantidade de dias corridos** do período.
+  - **Bloqueio de conflitos:** impede escolher períodos que conflitem com férias já agendadas (pendentes ou aprovadas) de outros funcionários, exibindo o motivo imediatamente.
+  - **Visibilidade imediata no calendário:** assim que agendadas, as férias aparecem no calendário semanal e mensal para todos com cores distintas (**Violeta** para aprovadas e **Laranja tracejado** para pendentes de aprovação).
+  - **Painel do Administrador:** aprova ou recusa solicitações pendentes e também pode **agendar férias diretamente para qualquer colaborador** (já entrando como aprovada sem precisar de mais ninguém).
 
 ---
 

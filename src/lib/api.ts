@@ -6,6 +6,8 @@ import type {
   ShopSettings,
   SwapRequestItem,
   UserRole,
+  VacationRequestItem,
+  VacationStatus,
 } from '../../shared/types';
 
 export class ApiError extends Error {
@@ -66,6 +68,12 @@ export interface SwapsResponse {
   pending_action_count: number;
 }
 
+export interface VacationsResponse {
+  requests: VacationRequestItem[];
+  employees: PublicEmployee[];
+  pending_admin_count: number;
+}
+
 export const api = {
   me: () => request<AuthResponse>('/api/auth/me'),
   login: (username: string, password: string) =>
@@ -90,9 +98,10 @@ export const api = {
   listSwaps: () => request<SwapsResponse>('/api/swaps'),
   createSwapRequest: (payload: {
     requester_date: string;
-    target_id: number;
+    target_id?: number;
     target_date: string;
     reason?: string;
+    is_open_swap?: boolean;
   }) =>
     request<{ ok: boolean; id: number }>('/api/swaps', {
       method: 'POST',
@@ -103,6 +112,30 @@ export const api = {
     payload: { decision: 'approved' | 'rejected' | 'cancelled' | 'undo'; as?: 'target' | 'admin' },
   ) =>
     request<{ ok: boolean; status: string; undone?: boolean }>(`/api/swaps/${id}/respond`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  // Solicitações e agendamentos de férias
+  listVacations: () => request<VacationsResponse>('/api/vacations'),
+  createVacationRequest: (payload: {
+    employee_id?: number;
+    start_date: string;
+    end_date: string;
+    reason?: string;
+  }) =>
+    request<{ ok: boolean; id: number; status: VacationStatus; days_count: number }>(
+      '/api/vacations',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    ),
+  respondVacationRequest: (
+    id: number,
+    payload: { decision: 'approved' | 'rejected' | 'cancelled' },
+  ) =>
+    request<{ ok: boolean; status: VacationStatus }>(`/api/vacations/${id}/respond`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

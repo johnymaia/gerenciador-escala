@@ -77,19 +77,35 @@ export function computeScheduleRange(params: {
   settings: ShopSettings;
   holidayOverrides: HolidayOverrideRecord[];
   scheduleOverrides: ScheduleOverrideRecord[];
+  approvedVacations?: Array<{ employee_id: number; start_date: string; end_date: string }>;
 }): ScheduleDay[] {
-  const { from, to, employees, settings, holidayOverrides, scheduleOverrides } = params;
+  const {
+    from,
+    to,
+    employees,
+    settings,
+    holidayOverrides,
+    scheduleOverrides,
+    approvedVacations = [],
+  } = params;
 
   const rotationEmployees = employees
     .filter((e) => e.active && e.in_rotation)
     .sort((a, b) => a.rotation_order - b.rotation_order || a.id - b.id);
 
+  const empNameById = new Map<number, string>();
+  for (const emp of employees) {
+    empNameById.set(emp.id, emp.name);
+  }
+
   const N = rotationEmployees.length;
   const startDate = settings.rotation_start_date;
-  const endLimit = to > startDate ? to : startDate;
+  // Garante que o cálculo do ponteiro vá até o sábado da última semana solicitada para avaliar a cascata de sábado
+  const sundayOfTo = getSundayOfWeek(to);
+  const endLimit = sundayOfTo > startDate ? sundayOfTo : startDate;
 
   const minYear = Math.min(Number(from.slice(0, 4)), Number(startDate.slice(0, 4))) - 1;
-  const maxYear = Math.max(Number(to.slice(0, 4)), Number(startDate.slice(0, 4))) + 1;
+  const maxYear = Math.max(Number(endLimit.slice(0, 4)), Number(startDate.slice(0, 4))) + 1;
   const closedHolidays = getClosedHolidayMap(minYear, maxYear, holidayOverrides);
 
   // Map date -> base off employee id (somente para datas >= rotation_start_date)
@@ -122,6 +138,74 @@ export function computeScheduleRange(params: {
     }
   }
 
+  // Regra de Cascata de Sábado em Férias Aprovadas (Opção A):
+  // - Quando a pessoa que folga no Sábado está em férias aprovadas:
+  //   1. Se a Sexta for dia aberto normal, somente a pessoa da Sexta pula para o Sábado e a Sexta fica como Folga Livre (ninguém mexe na Quinta).
+  //   2. Se a Sexta for feriado / loja fechada, a pessoa da Quinta pula direto para o Sábado e a Quinta fica como Folga Livre.
+  // - Aplicada sobre uma cópia pós-ponteiro para NÃO alterar o rodízio das semanas seguintes!
+  const effectiveOffByDate = new Map<string, number | null>(baseOffByDate);
+  const openOffDates = new Set<string>();
+  const cascadeInfoByDate = new Map<string, string>();
+
+  const isOnApprovedVacation = (empId: number, ymd: string): boolean =>
+    approvedVacations.some(
+      (v) => v.employee_id === empId && v.start_date <= ymd && v.end_date >= ymd,
+    );
+
+  if (N > 0 && approvedVacations.length > 0 && endLimit >= startDate) {
+    let cur = startDate;
+    while (cur <= endLimit) {
+      if (getWeekday(cur) === 6) {
+        // É um sábado >= startDate
+        const satEmpId = baseOffByDate.get(cur) ?? null;
+        if (satEmpId !== null && isOnApprovedVacation(satEmpId, cur)) {
+          const satName = empNameById.get(satEmpId) || 'Colega';
+          const friDate = addDaysYmd(cur, -1); // Sexta
+          const thuDate = addDaysYmd(cur, -2); // Quinta
+
+          const friOpen = friDate >= startDate && !closedHolidays.has(friDate);
+          const thuOpen = thuDate >= startDate && !closedHolidays.has(thuDate);
+
+          const friEmpId = friOpen ? (baseOffByDate.get(friDate) ?? null) : null;
+          const thuEmpId = thuOpen ? (baseOffByDate.get(thuDate) ?? null) : null;
+
+          if (friOpen && friEmpId !== null && !isOnApprovedVacation(friEmpId, cur)) {
+            const friName = empNameById.get(friEmpId) || 'Colega';
+            // Somente a pessoa da Sexta pula para a folga do Sábado, e a Sexta fica Livre (Quinta permanece inalterada!)
+            effectiveOffByDate.set(cur, friEmpId);
+            effectiveOffByDate.set(friDate, null);
+            openOffDates.add(friDate);
+
+            cascadeInfoByDate.set(
+              cur,
+              `Remanejamento automático: como ${satName} está de férias no sábado, ${friName} pulou da sexta para o sábado.`,
+            );
+            cascadeInfoByDate.set(
+              friDate,
+              `Folga Livre: ${friName} pulou para o sábado (férias de ${satName} no sábado). Qualquer colega pode solicitar esta sexta-feira com aprovação do administrador!`,
+            );
+          } else if (!friOpen && thuOpen && thuEmpId !== null && !isOnApprovedVacation(thuEmpId, cur)) {
+            // Sexta é feriado / loja fechada: a pessoa da Quinta pula direto para o Sábado e a Quinta fica Livre
+            const thuName = empNameById.get(thuEmpId) || 'Colega';
+            effectiveOffByDate.set(cur, thuEmpId);
+            effectiveOffByDate.set(thuDate, null);
+            openOffDates.add(thuDate);
+
+            cascadeInfoByDate.set(
+              cur,
+              `Remanejamento automático: como ${satName} está de férias no sábado (e sexta a loja está fechada), ${thuName} pulou da quinta para o sábado.`,
+            );
+            cascadeInfoByDate.set(
+              thuDate,
+              `Folga Livre: ${thuName} pulou para o sábado (férias de ${satName} no sábado e sexta fechada). Qualquer colega pode solicitar esta quinta-feira com aprovação do administrador!`,
+            );
+          }
+        }
+      }
+      cur = addDaysYmd(cur, 1);
+    }
+  }
+
   // Index manual schedule overrides by `${date}:${employee_id}`
   const overrideMap = new Map<string, ScheduleOverrideRecord>();
   for (const ov of scheduleOverrides) {
@@ -137,7 +221,8 @@ export function computeScheduleRange(params: {
     const isSunday = weekday === 0;
     const isBeforeStart = date < startDate;
     const holiday: HolidayItem | null = !isSunday ? (closedHolidays.get(date) ?? null) : null;
-    const baseOffId = !isBeforeStart && !isSunday && !holiday ? (baseOffByDate.get(date) ?? null) : null;
+    const baseOffId = !isBeforeStart && !isSunday && !holiday ? (effectiveOffByDate.get(date) ?? null) : null;
+    const cascadeInfo = cascadeInfoByDate.get(date) ?? null;
 
     const dayEmployees = rotationEmployees.map((emp) => {
       if (isBeforeStart) {
@@ -187,6 +272,8 @@ export function computeScheduleRange(params: {
 
     const offIds = dayEmployees.filter((e) => e.status === 'off').map((e) => e.employee_id);
     const hasOverride = dayEmployees.some((e) => e.is_override);
+    // Continua marcada como Folga Livre aberta enquanto ninguém tiver assumido folga naquele dia
+    const isOpenOff = openOffDates.has(date) && offIds.length === 0;
 
     days.push({
       date,
@@ -196,8 +283,11 @@ export function computeScheduleRange(params: {
       holiday,
       off_employee_ids: offIds,
       base_off_employee_id: baseOffId,
+      is_open_off: isOpenOff,
+      cascade_info: cascadeInfo,
       employees: dayEmployees,
       swaps: [],
+      vacations: [],
       has_manual_change: hasOverride,
     });
   }

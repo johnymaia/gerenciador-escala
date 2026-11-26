@@ -6,6 +6,7 @@ import {
   KeyRound,
   Loader2,
   LogOut,
+  Palmtree,
   Sparkles,
   Users,
 } from 'lucide-react';
@@ -20,8 +21,9 @@ import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
 import { SwapsPage } from './pages/SwapsPage';
 import { TeamSchedulePage } from './pages/TeamSchedulePage';
+import { VacationsPage } from './pages/VacationsPage';
 
-type TabKey = 'home' | 'schedule' | 'swaps' | 'holidays' | 'employees';
+type TabKey = 'home' | 'schedule' | 'swaps' | 'vacations' | 'holidays' | 'employees';
 
 export function App() {
   const [user, setUser] = useState<PublicEmployee | null>(null);
@@ -29,6 +31,7 @@ export function App() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [tab, setTab] = useState<TabKey>('home');
   const [pendingSwaps, setPendingSwaps] = useState(0);
+  const [pendingVacations, setPendingVacations] = useState(0);
 
   // Modal opcional para o próprio usuário trocar a senha quando quiser
   const [pwModalOpen, setPwModalOpen] = useState(false);
@@ -56,11 +59,16 @@ export function App() {
   useEffect(() => {
     if (!user || user.must_change_password) {
       setPendingSwaps(0);
+      setPendingVacations(0);
       return;
     }
     api
       .listSwaps()
       .then((res) => setPendingSwaps(res.pending_action_count))
+      .catch(() => undefined);
+    api
+      .listVacations()
+      .then((res) => setPendingVacations(res.pending_admin_count))
       .catch(() => undefined);
   }, [user, tab]);
 
@@ -68,6 +76,7 @@ export function App() {
     await api.logout().catch(() => undefined);
     setUser(null);
     setPendingSwaps(0);
+    setPendingVacations(0);
   }
 
   async function handleVoluntaryPasswordChange(e: FormEvent) {
@@ -145,6 +154,7 @@ export function App() {
         ...(user.in_rotation ? [{ key: 'home' as const, label: 'Início', icon: Home }] : []),
         { key: 'schedule', label: 'Escala', icon: CalendarDays },
         { key: 'swaps', label: 'Trocas', icon: ArrowLeftRight, badge: pendingSwaps },
+        { key: 'vacations', label: 'Férias', icon: Palmtree, badge: pendingVacations },
         { key: 'holidays', label: 'Feriados', icon: Sparkles },
         { key: 'employees', label: 'Equipe', icon: Users },
       ]
@@ -152,10 +162,11 @@ export function App() {
         { key: 'home', label: 'Início', icon: Home },
         { key: 'schedule', label: 'Escala', icon: CalendarDays },
         { key: 'swaps', label: 'Trocas', icon: ArrowLeftRight, badge: pendingSwaps },
+        { key: 'vacations', label: 'Férias', icon: Palmtree },
       ];
 
   return (
-    <div className="min-h-dvh bg-slate-50 pb-24 sm:pb-10">
+    <div className="min-h-dvh bg-slate-50 pb-24">
       {/* Topo limpo */}
       <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
@@ -172,34 +183,6 @@ export function App() {
               </div>
             </div>
           </div>
-
-          {/* Navegação desktop */}
-          <nav className="hidden items-center gap-1 sm:flex">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const active = tab === item.key;
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => setTab(item.key)}
-                  className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
-                    active
-                      ? 'bg-teal-50 text-teal-800'
-                      : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {item.label}
-                  {item.badge ? (
-                    <span className="rounded-full bg-amber-500 px-1.5 py-0.2 text-[10px] font-bold text-white">
-                      {item.badge}
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </nav>
 
           <div className="flex items-center gap-1">
             <button
@@ -244,6 +227,9 @@ export function App() {
         {tab === 'swaps' && (
           <SwapsPage user={user} onPendingCountChange={setPendingSwaps} />
         )}
+        {tab === 'vacations' && (
+          <VacationsPage user={user} onPendingCountChange={setPendingVacations} />
+        )}
         {tab === 'holidays' && isAdmin && <HolidaysPage />}
         {tab === 'employees' && isAdmin && (
           <EmployeesPage
@@ -254,10 +240,10 @@ export function App() {
         )}
       </main>
 
-      {/* Barra inferior fixa (mobile) */}
-      <nav className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t border-slate-200/80 bg-white/95 backdrop-blur-md sm:hidden">
+      {/* Barra inferior fixa (sempre visível em todas as telas, foco mobile-first) */}
+      <nav className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t border-slate-200/80 bg-white/95 backdrop-blur-md">
         <div
-          className="mx-auto grid max-w-lg px-2 pt-1.5"
+          className="mx-auto grid max-w-lg px-2 py-1.5"
           style={{ gridTemplateColumns: `repeat(${navItems.length}, minmax(0, 1fr))` }}
         >
           {navItems.map((item) => {
@@ -269,7 +255,7 @@ export function App() {
                 type="button"
                 onClick={() => setTab(item.key)}
                 className={`relative flex flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 text-[11px] font-medium transition ${
-                  active ? 'text-teal-700' : 'text-slate-400'
+                  active ? 'text-teal-700' : 'text-slate-400 hover:text-slate-600'
                 }`}
               >
                 <div className="relative">
@@ -280,7 +266,7 @@ export function App() {
                     </span>
                   ) : null}
                 </div>
-                <span>{item.label}</span>
+                <span className="truncate max-w-full px-0.5">{item.label}</span>
               </button>
             );
           })}
